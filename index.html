@@ -33,10 +33,12 @@
       <button data-tab="layers" class="on">Capas</button>
       <button data-tab="findings">Hallazgos <em id="fCount">6</em></button>
       <button data-tab="case">Caso</button>
+      <button data-tab="clinic" id="tabClinic" hidden>Clínicos</button>
     </div>
     <section id="tab-layers" class="tabbody on"></section>
     <section id="tab-findings" class="tabbody"></section>
     <section id="tab-case" class="tabbody"></section>
+    <section id="tab-clinic" class="tabbody"></section>
   </aside>
 
   <aside id="right" class="panel">
@@ -71,6 +73,7 @@
     <label class="slider"><span>Explosión</span><input type="range" id="explode" min="0" max="100" value="0"></label>
     <button class="btn icon" id="btnReset" title="Restablecer vista">⟲<small>Vista</small></button>
     <button class="btn icon" id="btnShowAll" title="Mostrar todo" hidden>◎<small>Mostrar todo</small></button>
+    <button class="btn icon" id="btnClinic" title="Laboratorio, impresión clínica y puntos a revisar" hidden>🩺<small>Clínicos</small></button>
     <button class="btn icon" id="btnDemo" title="Recorrido guiado">▶<small>Recorrido</small></button>
     <button class="btn primary" id="btnAR" title="Realidad aumentada sin marcadores">◐ Ver en AR</button>
   </div>
@@ -78,7 +81,7 @@
   <div id="disclaimer" class="disclaimer">Demo con datos de ejemplo. Herramienta de visualización, no es dispositivo médico ni diagnóstico.</div>
 
   <nav id="mnav" class="mnav">
-    <button data-sheet="layers">Capas</button><button data-sheet="findings">Hallazgos</button><button data-sheet="slice">Corte</button><button data-sheet="case">Caso</button>
+    <button data-sheet="layers">Capas</button><button data-sheet="findings">Hallazgos</button><button data-sheet="slice">Corte</button><button data-sheet="case">Caso</button><button data-sheet="clinic" id="mnClinic" hidden>Clínicos</button>
   </nav>
 
   <div id="pitch" class="overlay" hidden>

@@ -4,6 +4,7 @@ import { SliceView, AX } from './slice.js';
 import { VolumeSliceView } from './volslice.js';
 import { unlock, restore } from './unlock.js';
 import { ARController } from './ar.js';
+import { renderClinical, createLabChips } from './clinical.js';
 import { SRC, sizeText, huText } from './cards.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -71,7 +72,7 @@ function renderFindings() {
   h += '<h3 class="sec">Órganos sin hallazgos</h3>';
   for (const n of caseData.organ_notes || []) { const o = viewer.organs.get(n.organ); h += `<div class="note ok"><b>${esc(n.label || o?.label || n.organ)}</b> — ${esc(n.text)}</div>`; }
   h += '<h3 class="sec">Puntos a revisar por el médico tratante</h3><ul class="rv">';
-  for (const p of caseData.review_points || []) h += `<li>${esc(p.text)} ${badge({ srcKey: /ia/i.test(p.source) ? 'ia' : 'reporte' })}</li>`;
+  for (const p of (caseData.review_points || []).filter(p => p.scope !== 'clinical')) h += `<li>${esc(p.text)} ${badge({ srcKey: /ia/i.test(p.source) ? 'ia' : 'reporte' })}</li>`;
   h += '</ul>';
   if (caseData.limitations?.length) { h += '<h3 class="sec">Limitaciones</h3><ul class="rv">' + caseData.limitations.map(t => `<li>${esc(t)}</li>`).join('') + '</ul>'; }
   el.innerHTML = h; $('#fCount').textContent = viewer.findings.length;
@@ -145,12 +146,26 @@ viewer.addEventListener('hover', e => {
 
 // ---------- Hojas móviles ----------
 function setSheet(name) {
-  const cur = ['layers', 'findings', 'slice', 'case'].find(n => document.body.classList.contains('sheet-' + n));
-  ['layers', 'findings', 'slice', 'case'].forEach(n => document.body.classList.remove('sheet-' + n));
+  const cur = ['layers', 'findings', 'slice', 'case', 'clinic'].find(n => document.body.classList.contains('sheet-' + n));
+  ['layers', 'findings', 'slice', 'case', 'clinic'].forEach(n => document.body.classList.remove('sheet-' + n));
   if (name && name !== cur) { document.body.classList.add('sheet-' + name); if (name !== 'slice') setTab(name); }
   $$('#mnav button').forEach(b => b.classList.toggle('on', document.body.classList.contains('sheet-' + b.dataset.sheet)));
 }
-function setTab(name) { $$('#leftTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name)); $$('.tabbody').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name)); }
+function setTab(name) { $$('#leftTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name)); $$('.tabbody').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name)); syncClinicMode(); }
+// Modo «Clínicos»: etiquetas de laboratorio junto a los riñones; se apagan las infografías de hallazgos para no encimar y se restauran al salir
+let labChips = null, clinicOn = false, labelsBefore = true;
+function syncClinicMode() {
+  const on = !!labChips && $('#tab-clinic').classList.contains('on') && (innerWidth > 760 || document.body.classList.contains('sheet-clinic'));
+  if (on === clinicOn) return; clinicOn = on; labChips.visible = on;
+  if (on) { labelsBefore = viewer.labelsOn; viewer.setLabels(false); } else viewer.setLabels(labelsBefore);
+}
+function showKidneys() {
+  viewer.setSystemVisible('oseo', false); viewer.isolate(null);
+  const a = viewer.organs.get('rinon_derecho'), b = viewer.organs.get('rinon_izquierdo');
+  if (a && b) viewer.flyTo(viewer.worldCenterOf(a).add(viewer.worldCenterOf(b)).multiplyScalar(0.5), viewer.fitRegion(330), 900, new THREE.Vector3(0, 0.1, 1));
+}
+$('#btnClinic').addEventListener('click', () => { if (viewer.narrow) setSheet('clinic'); else { setTab('clinic'); } });
+$('#tab-clinic').addEventListener('click', e => { if (e.target.closest('[data-kid]')) showKidneys(); });
 $('#leftTabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
 $('#mnav').addEventListener('click', e => { const b = e.target.closest('[data-sheet]'); if (b) setSheet(b.dataset.sheet); });
 
@@ -178,7 +193,7 @@ $('#heroClose').addEventListener('click', () => $('#hero').classList.add('gone')
 // ---------- Presentación / Acerca de ----------
 const open = id => { $(id).hidden = false; }; const closeOv = e => { if (e.target.matches('[data-close]') || e.target.classList.contains('overlay')) e.currentTarget.hidden = true; };
 $('#btnPitch').addEventListener('click', () => open('#pitch')); $('#btnAbout').addEventListener('click', () => open('#about'));
-$('#btnLock').textContent = REAL ? '◐ Ver ejemplo' : '🔒 Caso real'; $('#btnLock').addEventListener('click', () => { location.search = REAL ? '' : '?caso=protegido'; });
+$('#btnLock').textContent = REAL ? '◐ Ejemplo' : '🔒 Caso real'; $('#btnLock').addEventListener('click', () => { location.search = REAL ? '' : '?caso=protegido'; });
 $('#pitch').addEventListener('click', closeOv); $('#about').addEventListener('click', closeOv);
 window.addEventListener('keydown', e => { if (e.key === 'Escape') $$('.overlay').forEach(o => o.hidden = true); });
 function renderAbout() {
@@ -238,10 +253,10 @@ $('#btnAR').addEventListener('click', async () => {
 function updateInsets() {
   const w = innerWidth, h = innerHeight; let l = 0, r = 0, t = 0, b = 0;
   if (w > 760) { l = 340; r = (w > 1180 || document.body.classList.contains('show-slice')) ? 330 : 0; t = 50; b = 80; }
-  else { t = 50; const sheet = ['layers', 'findings', 'slice', 'case'].some(n => document.body.classList.contains('sheet-' + n)); b = sheet ? Math.min(h * 0.40, 380) + 200 : 200; }
+  else { t = 50; const sheet = ['layers', 'findings', 'slice', 'case', 'clinic'].some(n => document.body.classList.contains('sheet-' + n)); b = sheet ? Math.min(h * 0.40, 380) + 200 : 200; }
   viewer.setInsets(l, r, t, b);
 }
-new MutationObserver(updateInsets).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+new MutationObserver(() => { updateInsets(); syncClinicMode(); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 addEventListener('resize', updateInsets); updateInsets();
 
 // ---------- Arranque ----------
@@ -283,6 +298,7 @@ function gate(action, o = {}) {
     $('.hero-t').textContent = caseData.case.subtitle;
     if (REAL) { $('#disclaimer').textContent = caseData.case.disclaimer; $('.dot').style.background = '#ff6b6b'; document.title = 'Atlas Clínico 3D'; }
     renderLayers(); renderFindings(); renderCase(); renderAbout();
+    if (caseData.clinical?.documents?.length) { renderClinical($('#tab-clinic'), caseData); labChips = createLabChips(viewer, caseData); $$('#tabClinic,#mnClinic,#btnClinic').forEach(b => b.hidden = false); }
     syncSlice(viewer.findings[0].id, false);
     await initAR();
     document.body.classList.add('ready'); window.__ready = true;

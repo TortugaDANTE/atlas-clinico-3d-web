@@ -31,7 +31,8 @@ button{font:inherit;color:inherit;cursor:pointer}
 .tabs{display:flex;gap:4px;padding:8px 8px 0;border-bottom:1px solid var(--line)}
 .tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;padding:9px 6px;color:var(--mu);font-weight:600}
 .tabs button.on{color:var(--tx);border-bottom-color:var(--acc)}
-.tabs button em{font-style:normal;background:rgba(255,181,71,.2);color:var(--am);border-radius:99px;padding:0 7px;font-size:11px;margin-left:4px}
+.tabs button em{font-style:normal;background:rgba(255,181,71,.2);color:var(--am);border-radius:99px;padding:0 6px;font-size:11px;margin-left:3px}
+#leftTabs{gap:0}#leftTabs button{padding:9px 2px;font-size:12.5px;white-space:nowrap}
 .tabs.small{padding:0;margin-bottom:8px}
 .tabbody{display:none;overflow:auto;padding:12px 12px 16px;flex:1}
 .tabbody.on{display:block}
@@ -119,10 +120,11 @@ body.mode-holo .seg button.on{background:rgba(63,220,255,.22);color:var(--cy)}
 body.ar-active #app>*:not(#ar-hud):not(#stage){display:none!important}
 @media (max-width:1180px){.hero{width:min(520px,calc(100vw - 40px));top:72px}#right{display:none}body.show-slice #right{display:block}}
 @media (max-width:760px){
+  #btnClinic{display:none!important}
   .brand span,.case-chip,#btnAbout{display:none}
   #topbar{height:52px;padding:0 12px}
   #left{display:none;left:8px;right:8px;width:auto;top:auto;bottom:calc(178px + var(--sab));height:min(40vh,380px)}
-  body.sheet-layers #left,body.sheet-findings #left,body.sheet-case #left{display:flex}
+  body.sheet-layers #left,body.sheet-findings #left,body.sheet-case #left,body.sheet-clinic #left{display:flex}
   #left .tabs{display:none}
   #right{display:none;left:8px;right:8px;width:auto;top:auto;bottom:calc(178px + var(--sab));max-height:44vh;overflow:auto}
   body.sheet-slice #right{display:block}
@@ -149,3 +151,26 @@ body.ar-active #app>*:not(#ar-hud):not(#stage){display:none!important}
 .gate-card input:focus{outline:2px solid var(--acc)}
 .gate-msg{min-height:18px;font-size:12.5px;color:var(--mu)}.gate-msg.err{color:#ff8a8a}
 body.gated #topbar,body.gated #left,body.gated #right,body.gated #toolbar,body.gated #hero,body.gated #mnav,body.gated #disclaimer{display:none!important}
+
+/* Panel Clínicos */
+.badge.tr{color:#9ec5ff;background:rgba(120,170,255,.12);border-color:#7aa7ff}
+.note.warn{border-left-color:var(--am);background:rgba(255,181,71,.07)}
+em.cnt{font-style:normal;color:var(--am)}
+details.doc{border:1px solid var(--line);border-radius:12px;margin:8px 0;padding:0 10px 8px;background:rgba(255,255,255,.025)}
+details.doc>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:9px;padding:10px 0;flex-wrap:wrap}
+details.doc>summary::-webkit-details-marker{display:none}
+details.doc .ic{font-size:20px}details.doc .tt{display:flex;flex-direction:column;flex:1;min-width:120px;font-size:13px}details.doc .tt small{color:var(--mu);font-size:11.5px}
+details.doc .badge{margin-top:0}
+table.lab{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+table.lab td:nth-child(1){width:36%}table.lab td:nth-child(2){width:32%;white-space:normal!important}table.lab td:nth-child(3){width:32%}
+#tab-clinic{overflow-x:hidden;word-break:break-word}
+table.lab td{padding:5px 4px;border-bottom:1px solid rgba(255,255,255,.07);vertical-align:top}
+table.lab small{color:var(--mu)}table.lab .rf{color:var(--mu);font-size:11px}
+table.lab tr.fl-low td:nth-child(2) b,table.lab tr.fl-high td:nth-child(2) b,table.lab tr.fl-border td:nth-child(2) b{color:var(--am)}
+table.lab .flg{color:var(--am);font-size:10.5px}
+table.lab tr.hl{background:rgba(255,213,138,.07)}
+.kid{font-size:9.5px;border:1px solid #d99a7a;color:#f0b49a;border-radius:99px;padding:0 6px;margin-left:3px}
+.hlgrid{display:grid;grid-template-columns:1fr;gap:6px;margin:4px 0 8px}
+.hlcard{text-align:left;background:rgba(255,213,138,.08);border:1px solid rgba(255,213,138,.45);border-radius:10px;padding:8px 10px;color:var(--tx);display:grid;grid-template-columns:1fr auto;gap:2px 8px;cursor:pointer}
+.hlcard b{font-size:12.5px}.hlcard span{font-size:15px;font-weight:700;text-align:right}.hlcard em{grid-column:1/-1;font-style:normal;color:var(--am);font-size:11px}.hlcard i{grid-column:1/-1;font-style:normal;color:#cfd9e3;font-size:11.5px}
+.hlcard.fl-normal em{color:var(--ok)}
