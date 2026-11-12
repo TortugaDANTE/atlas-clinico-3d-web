@@ -1,4 +1,8 @@
-// Modelo anatómico GENÉRICO y esquemático de abdomen, generado de forma procedural (sin datos de pacientes).
+// Generador procedural del abdomen esquemático original (sin datos de pacientes).
+// El caso de ejemplo publicado ya no usa este boceto: el GLB en assets/generic_abdomen.glb
+// es un modelo de cuerpo entero derivado de BodyParts3D 4.0 (CC BY 4.0,
+// Database Center for Life Science). Este archivo se conserva por si se quiere
+// regenerar el esquema anterior con tools/export.html.
 // Coordenadas en mm. Ejes: x = izquierda del paciente (+), y = craneal (+), z = anterior (+).
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Viewer } from './viewer.js';
-import { SliceView, AX } from './slice.js';
+import { SliceView, AX, configureSlices } from './slice.js';
 import { VolumeSliceView } from './volslice.js';
 import { unlock } from './unlock.js';
 import { startSession, stopSession } from './session.js';
@@ -8,6 +8,10 @@ import { Editor } from './edit.js';
 import { ARController } from './ar.js';
 import { renderClinical, createLabChips, createSpineLabels, revokeImages } from './clinical.js';
 import { SRC, sizeText, huText } from './cards.js';
+import { TEXTS, findingReviewHtml, countsHtml, bindReviewClicks, markModified, applyReviewVisuals, normalizeCaseReviews, defaultReviewStatus } from './review.js';
+import { evaluateRules, renderAlerts, renderRuleActions } from './ia-rules.js';
+import { registerBuiltinAdapters } from './ai-hooks.js';
+registerBuiltinAdapters();
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -17,8 +21,8 @@ history.replaceState(null, '', location.pathname);
 let REAL = false;  // caso real abierto con el botón «Caso real» (contraseña del caso), nunca por enlace
 const SYS = { hallazgos: 'Calcificaciones', cuerpo: 'Cuerpo', oseo: 'Óseo', urinario: 'Renal / urinario', vascular: 'Vascular (aorta, cava, venas)', digestivo: 'Órganos abdominales', muscular: 'Músculo y pared', cardiaco: 'Corazón', respiratorio: 'Pulmones (bases)', nervioso: 'Médula espinal' };
 const SYS_ORDER = ['oseo', 'urinario', 'hallazgos', 'vascular', 'digestivo', 'cardiaco', 'respiratorio', 'nervioso', 'muscular', 'cuerpo'];
-const STL = { normal: ['Normal', '#40d6aa'], hallazgo: ['Hallazgo', '#ffb547'], variante: ['Variante normal', '#6aa8ff'], no_evaluable: ['No evaluable', '#9aa7b4'] };
-const worst = list => ['hallazgo', 'variante', 'no_evaluable', 'normal'].find(s => list.some(r => r.estado === s));
+const STL = { normal: ['Normal', '#40d6aa'], hallazgo: ['Hallazgo', '#ffb547'], variante: ['Variante normal', '#6aa8ff'], parcial: ['Parcialmente observado', '#e0c46a'], no_evaluable: ['No evaluable', '#9aa7b4'] };
+const worst = list => ['hallazgo', 'parcial', 'variante', 'no_evaluable', 'normal'].find(s => list.some(r => r.estado === s));
 const sbadge = k => `<span class="sbadge" style="--c:${STL[k][1]}">${STL[k][0]}</span>`;
 const fold = new Set();  // sistemas plegados en Capas (por omisión los que tienen muchas estructuras)
 let foldInit = false;
@@ -41,7 +45,7 @@ function renderLayers() {
   let h = `<div class="glob">${g('markers', 'Marcadores de hallazgos', viewer.markersOn)}${g('labels', 'Etiquetas de anomalías (infografías)', viewer.labelsOn)}${g('lesions', 'Lesiones / calcificaciones en 3D', viewer.lesionsOn)}${g('see', 'Ver interior del órgano aislado', viewer.seeThrough)}</div>`;
   if ([...viewer.organs.values()].some(o => o.def.auto)) h += '<p class="fine aprox-note"><b>aprox.</b> = segmentación automática (TotalSegmentator), aproximada: sirve para explorar la anatomía, no es una medición ni un diagnóstico. Las estructuras nuevas inician ocultas; enciéndelas por sistema o una por una.</p>';
   for (const sys of SYS_ORDER) {
-    const list = [...viewer.organs.values()].filter(o => o.system === sys && !o.follows && !o.def.hidden_in_list && !o.slice_only);
+    const list = [...viewer.organs.values()].filter(o => o.system === sys && (!o.follows || o.def.confidence) && !o.def.hidden_in_list && !o.slice_only);
     if (!list.length) continue;
     const allOn = list.every(o => o.visible), anyOn = list.some(o => o.visible), auto = list.some(o => o.def.auto);
     if (!foldInit && list.length > 8) fold.add(sys);
@@ -50,13 +54,18 @@ function renderLayers() {
     if (closed) continue;
     for (const o of list) {
       const holo = viewer.isHolo(o), iso = viewer.isolated === o.id;
-      h += `<div class="lrow ${iso ? 'iso' : ''}"><input type="checkbox" class="sw" data-org="${o.id}" ${o.visible ? 'checked' : ''}><span class="nm" data-name="${o.id}">${esc(o.label)}${o.def.auto ? ' <i class="ap" title="Segmentación automática, aproximada">aprox.</i>' : ''}</span>
+      h += `<div class="lrow ${iso ? 'iso' : ''}"><input type="checkbox" class="sw" data-org="${o.id}" ${o.visible ? 'checked' : ''}><span class="nm" data-name="${o.id}">${esc(o.label)}${o.def.confidence ? ` <i class="cf ${o.def.origin === 'probable' ? 'pr' : ''}" title="Origen: ${esc(o.def.origin || 'observado')} · confianza ${esc(o.def.confidence)}">${o.def.origin === 'probable' ? 'probable · ' : ''}conf. ${esc(o.def.confidence)}</i>` : ''}${o.def.auto ? ' <i class="ap" title="Segmentación automática, aproximada">aprox.</i>' : ''}</span>
         <button class="mini ${holo ? 'on' : ''}" data-holo="${o.id}" title="Holográfico para este órgano">◈</button>
         ${o.def.reading ? `<button class="mini rinfo" style="--c:${STL[worst(o.def.reading)][1]}" data-info="${o.id}" title="Lectura del órgano: ${STL[worst(o.def.reading)][0]}">ⓘ</button>` : '<span style="width:26px"></span>'}
         ${o.shell ? '<span style="width:26px"></span>' : `<button class="mini ${iso ? 'on' : ''}" data-iso="${o.id}" title="Aislar órgano">⌖</button>`}</div>`;
     }
   }
-  if (caseData?.reading_unmapped?.length) h += `<h3 class="sec">Otras estructuras leídas (sin capa 3D)</h3>` + caseData.reading_unmapped.map((r, i) => `<div class="lrow"><span class="dotst" style="--c:${STL[r.estado][1]}"></span><span class="nm" data-uinfo="${i}">${esc(r.organo)}</span></div>`).join('');
+  if (caseData?.reading_unmapped?.length) {   // lecturas sin estructura que dibujar: se separan por motivo
+    const U = caseData.reading_unmapped.map((r, i) => ({ r, i })), row = ({ r, i }) => `<div class="lrow"><span class="dotst" style="--c:${STL[r.estado][1]}"></span><span class="nm" data-uinfo="${i}">${esc(r.organo)}</span></div>`;
+    const ne = U.filter(x => x.r.estado === 'no_evaluable'), ok = U.filter(x => x.r.estado !== 'no_evaluable');
+    if (ne.length) h += `<h3 class="sec">No evaluable en esta TC</h3><div class="fine">El campo del estudio o la técnica sin contraste no permiten valorarlo; no hay malla.</div>` + ne.map(row).join('');
+    if (ok.length) h += `<h3 class="sec">Revisado: sin hallazgo (no hay estructura que dibujar)</h3><div class="fine">Lectura del urólogo sobre cortes; ninguna segmentación real de la TC lo cubre, así que no se dibuja ni se aproxima.</div>` + ok.map(row).join('');
+  }
   foldInit = true; el.innerHTML = h;
   for (const c of el.querySelectorAll('[data-part]')) c.indeterminate = true;
 }
@@ -101,23 +110,34 @@ function showReading(list, title, oid) {
 // ---------- Hallazgos / Caso ----------
 function renderFindings() {
   const el = $('#tab-findings'); let h = `<div class="etools"><button class="btn sm" data-ex="1">⬇ Exportar respaldo</button><button class="btn sm" data-im="1">⬆ Importar respaldo</button><button class="btn sm ghost" data-clr="1">Borrar historial</button><input type="file" id="impFile" accept=".json,application/json" hidden></div><p class="fine">Selecciona un hallazgo para editarlo o ver su historial. Los cambios se guardan cifrados solo en este navegador; nunca se publican.</p>`;
+  h += `<div class="ia-disclaimer">${esc(TEXTS.disclaimer)}</div>`;
+  if (caseData.safety_alert) h += `<div class="ia-alert urgente" role="alert">⚠ ${esc(caseData.safety_alert)}</div>`;
+  const ev = caseData.__iaRules || evaluateRules(caseData);
+  h += renderAlerts(ev, esc);
+  h += countsHtml(viewer.findings, esc);
   for (const f of viewer.findings) {
     const sel = viewer.selected === f.id;
-    h += `<div class="fcard ${sel ? 'sel' : ''}" data-f="${f.id}"><h4>${f.id} · ${esc(f.title)}${editor.isEdited(f.id) ? '<span class="eb">editado</span>' : ''}</h4><div class="loc">${esc(f.location)}</div>
+    const st = defaultReviewStatus(f);
+    h += `<div class="fcard ${sel ? 'sel' : ''} ${st || ''}" data-f="${f.id}"><h4>${f.id} · ${esc(f.title)}${editor.isEdited(f.id) ? '<span class="eb">editado</span>' : ''}</h4><div class="loc">${esc(f.location)}</div>
       <div class="m">${sizeText(f.size_mm, f.size_text)}<i>·</i>${huText(f)}</div>${badge(f)}${f.priority ? ' <span class="badge prio">PRIORIDAD</span>' : ''}
-      ${sel ? `<div class="nt">${esc(f.note)}</div>${f.user_note ? `<div class="unote"><b>Nota del médico:</b> ${esc(f.user_note)}</div>` : ''}<div class="act"><button class="btn sm" data-fiso="${f.id}">Aislar órgano</button><button class="btn sm" data-fslice="${f.id}">Ver corte</button><button class="btn sm" data-fedit="${f.id}">✎ Editar</button><button class="btn sm" data-fhist="${f.id}">🕘 Historial</button></div>` : ''}</div>`;
+      ${findingReviewHtml(f, { selected: true, esc })}
+      ${sel ? `<div class="nt">${esc(f.note)}</div>${f.user_note ? `<div class="unote"><b>Nota del médico:</b> ${esc(f.user_note)}</div>` : ''}<div class="act"><button class="btn sm" data-fiso="${f.id}">Aislar órgano</button>${(caseData.findings || []).find(x => x.id === f.id)?.reading?.length ? `<button class="btn sm" data-freading="${f.id}">Lectura del urólogo</button>` : ''}<button class="btn sm" data-fslice="${f.id}">Ver corte</button><button class="btn sm" data-fedit="${f.id}">✎ Editar</button><button class="btn sm" data-fhist="${f.id}">🕘 Historial</button></div>` : ''}</div>`;
   }
   h += '<h3 class="sec">Órganos sin hallazgos</h3>';
   for (const n of caseData.organ_notes || []) { const o = viewer.organs.get(n.organ); h += `<div class="note ok"><b>${esc(n.label || o?.label || n.organ)}</b> — ${esc(n.text)}</div>`; }
   h += '<h3 class="sec">Puntos a revisar por el médico tratante</h3><ul class="rv">';
   for (const p of (caseData.review_points || []).filter(p => p.scope !== 'clinical')) h += `<li>${esc(p.text)} ${badge({ srcKey: /ia/i.test(p.source) ? 'ia' : 'reporte' })}</li>`;
   h += '</ul>';
+  h += renderRuleActions(ev, esc);
   if (caseData.limitations?.length) { h += '<h3 class="sec">Limitaciones</h3><ul class="rv">' + caseData.limitations.map(t => `<li>${esc(t)}</li>`).join('') + '</ul>'; }
   el.innerHTML = h; $('#fCount').textContent = viewer.findings.length;
+  applyReviewVisuals(viewer);
 }
 $('#tab-findings').addEventListener('click', e => {
+  if (e.target.closest('[data-rev]')) return; // lo maneja js/review.js (Confirmar / Descartar / …)
   const t = e.target.closest('[data-fedit],[data-fhist],[data-ex],[data-im],[data-clr]');
   if (t) { if (t.dataset.fedit) editor.edit(t.dataset.fedit); else if (t.dataset.fhist) editor.history(t.dataset.fhist); else if (t.dataset.ex) editor.exportBackup(); else if (t.dataset.im) $('#impFile').click(); else if (t.dataset.clr) editor.clearAll(); return; }
+  const fr = e.target.closest('[data-freading]'); if (fr) { const f = caseData.findings.find(x => x.id === fr.dataset.freading); showReading(f.reading, f.title, null); return; }
   const b = e.target.closest('[data-fiso]'); if (b) { const f = viewer.findings.find(x => x.id === b.dataset.fiso); viewer.isolate(f.host.id); viewer.flyToOrgan(f.host.id); return; }
   const s = e.target.closest('[data-fslice]'); if (s) { openSliceFor(s.dataset.fslice); return; }
   const c = e.target.closest('[data-f]'); if (c) focusFinding(c.dataset.f);
@@ -127,9 +147,11 @@ function focusFinding(id) { viewer.select(id); viewer.flyToFinding(id); syncSlic
 function renderCase() {
   const c = caseData.case;
   $('#tab-case').innerHTML = `<div class="kv"><span>Caso</span><b>${esc(c.title)} · ${esc(c.id)}</b><span>Paciente</span><div>${esc(c.patient)}</div><span>Estudio</span><div>${esc(c.study)}</div><span>Equipo</span><div>${esc(c.equipment)}</div><span>Institución</span><div>${esc(c.institution)}</div><span>Fecha</span><div>${esc(c.date)}</div>${c.series ? `<span>Series</span><div>${esc(c.series)}</div>` : ''}</div>${(caseData.metrics || []).length ? '<h3 class="sec">Mediciones</h3>' + caseData.metrics.map(m => `<div class="note"><b>${esc(m.label)}:</b> ${esc(m.value)}<br><span class="fine">${esc(m.note || '')}</span></div>`).join('') : ''}
+  ${caseData.safety_alert ? `<div class="ia-alert urgente" role="alert">⚠ ${esc(caseData.safety_alert)}</div>` : ''}
   <h3 class="sec">Resumen general</h3><div class="note">${esc(c.general_summary)}</div>
-  <h3 class="sec">Origen de cada dato</h3><div class="note"><span class="badge reporte">REPORTE</span> viene de un informe radiológico firmado.<br><span class="badge ia">INTERPRETACIÓN IA</span> es una lectura automática de las imágenes, aún sin validación médica.</div>
-  <h3 class="sec">Aviso</h3><div class="note">${esc(c.disclaimer)}</div>
+  <h3 class="sec">Origen de cada dato</h3><div class="note"><span class="badge reporte">REPORTE</span> viene de un informe radiológico firmado.<br><span class="badge ia">INTERPRETACIÓN IA</span> es una lectura automática de las imágenes, aún sin validación médica. El juicio clínico vive en el estado de revisión (propuesta, pendiente, confirmada, descartada o modificada), no en la fuente.</div>
+  <h3 class="sec">Aviso</h3><div class="note">${esc(c.disclaimer || TEXTS.disclaimer)}</div>
+  ${caseData.credits?.model ? `<h3 class="sec">Modelo 3D</h3><div class="note">${esc(caseData.credits.model)}</div>` : ''}
   <h3 class="sec">Notas del médico (solo en este navegador)</h3><div class="note" style="white-space:pre-wrap">${editor.userNote('__case') ? esc(editor.userNote('__case')) : '<span class="fine">Sin notas.</span>'}</div><div class="etools"><button class="btn sm" data-cedit="1">✎ Editar notas</button><button class="btn sm" data-chist="1">🕘 Historial</button></div>`;
 }
 
@@ -223,13 +245,13 @@ $('#mnav').addEventListener('click', e => { const b = e.target.closest('[data-sh
 // ---------- Recorrido guiado ----------
 let CFG, DEMO;
 function buildTour() {
-CFG = REAL ? { off: ['oseo'], organ: 'rinon_derecho', fid: 'H2' } : { off: ['oseo', 'digestivo', 'muscular', 'cuerpo'], organ: 'rinon_derecho', fid: 'H2' };
+CFG = REAL ? { off: ['oseo'], organ: 'rinon_derecho', fid: 'H2' } : { off: ['oseo', 'muscular', 'cuerpo'], organ: 'higado', fid: 'H1' };
 DEMO = [
-  { n: 'TOQUE 1 DE 3', t: 'Cuerpo completo', p: REAL ? 'Estudio real: microlitiasis renal bilateral, una calcificación mesentérica, un foco peripancreático y una calcificación cardíaca (prioridad). Los marcadores señalan cada hallazgo con todo el modelo visible.' : 'Caso de ejemplo con cálculos renales bilaterales, una calcificación extrarrenal y un lipoma. Los marcadores señalan cada hallazgo aun con todos los sistemas encendidos.', btn: 'Apagar sistemas →',
+  { n: 'TOQUE 1 DE 3', t: 'Cuerpo completo', p: REAL ? 'Estudio real: microlitiasis renal bilateral, una calcificación mesentérica, un foco peripancreático y una calcificación cardíaca (prioridad). Los marcadores señalan cada hallazgo con todo el modelo visible.' : 'Caso de ejemplo FICTICIO con dos hallazgos inventados: un quiste hepático y un nódulo pulmonar. Los marcadores señalan cada hallazgo aun con todos los sistemas encendidos.', btn: 'Apagar sistemas →',
     on() { viewer.showAll(); viewer.select(null); setMode('real'); $('#explode').value = 0; viewer.setExplode(0); viewer.resetView(); } },
-  { n: 'TOQUE 2 DE 3', t: 'Apagar sistemas', p: REAL ? 'Esqueleto apagado: quedan los riñones y las calcificaciones. Cada sistema se enciende o apaga desde el panel Capas.' : 'Óseo, órganos abdominales y músculo apagados: quedan la vía urinaria y los vasos. Cada sistema se enciende o apaga desde el panel Capas.', btn: 'Llegar a la anomalía →',
+  { n: 'TOQUE 2 DE 3', t: 'Apagar sistemas', p: REAL ? 'Esqueleto apagado: quedan los riñones y las calcificaciones. Cada sistema se enciende o apaga desde el panel Capas.' : 'Óseo, músculo y piel apagados: quedan las vísceras, los vasos y los pulmones. Cada sistema se enciende o apaga desde el panel Capas.', btn: 'Llegar a la anomalía →',
     on() { for (const s of CFG.off) viewer.setSystemVisible(s, false); viewer.flyTo(new THREE.Vector3(0, REAL ? 90 : -30, -20), 620, 900); } },
-  { n: 'TOQUE 3 DE 3', t: 'Llegar a la anomalía', p: 'Riñón derecho aislado y en vista explotada. Las infografías muestran órgano, ubicación, tamaño en mm, UH y la fuente (reporte o interpretación IA). Toca una tarjeta para ampliarla.', btn: 'Terminar',
+  { n: 'TOQUE 3 DE 3', t: 'Llegar a la anomalía', p: (REAL ? 'Riñón derecho aislado' : 'Hígado aislado') + ' y en vista explotada. Las infografías muestran órgano, ubicación, tamaño en mm, UH y la fuente (reporte o interpretación IA). Toca una tarjeta para ampliarla.', btn: 'Terminar',
     on() { viewer.isolate(CFG.organ); $('#explode').value = 30; viewer.setExplode(0.3); viewer.select(CFG.fid); setTimeout(() => { viewer.flyToFinding(CFG.fid); syncSlice(CFG.fid, false); }, 700); } },
 ];
 }
@@ -319,22 +341,22 @@ addEventListener('resize', updateInsets); updateInsets();
 const CANCEL = Symbol('cancel');
 // Pantalla de contraseña reutilizable: action(valor, onProgress) debe lanzar Error si la clave es incorrecta. Las contraseñas solo viven en el campo y se borran al terminar.
 function gate(action, o = {}) {
-  document.body.classList.add('gated'); const g = $('#gate'), inp = $('#gatePw'), msg = $('#gateMsg'), btn = $('#gateGo'), back = $('#gateBack');
+  document.body.classList.add('gated'); const g = $('#gate'), usr = $('#gateUser'), inp = $('#gatePw'), msg = $('#gateMsg'), btn = $('#gateGo'), back = $('#gateBack');
   $('#gateTitle').textContent = o.title || 'Acceso privado';
   $('#gateText').textContent = o.text || 'Este sitio es privado. Todo el contenido está cifrado (AES-256-GCM) y se descifra únicamente en tu navegador; la contraseña no se envía a ningún servidor.';
   inp.placeholder = o.placeholder || 'Contraseña'; inp.setAttribute('aria-label', inp.placeholder); inp.autocomplete = 'new-password';
   back.hidden = !o.back; btn.textContent = o.button || 'Entrar'; btn.disabled = false; msg.textContent = ''; inp.value = '';
   $('#gateShow').checked = false; inp.type = 'password'; $('#gateShow').onchange = e => { inp.type = e.target.checked ? 'text' : 'password'; };
-  g.hidden = false; inp.focus();
+  usr.hidden = !o.user; usr.value = ''; g.hidden = false; (o.user ? usr : inp).focus();
   return new Promise(res => {
-    const close = () => { inp.value = ''; g.hidden = true; document.body.classList.remove('gated'); };
+    const close = () => { inp.value = ''; usr.value = ''; g.hidden = true; document.body.classList.remove('gated'); };
     const go = async () => {
       if (!inp.value) return; btn.disabled = true; msg.textContent = 'Derivando clave…'; msg.className = 'gate-msg';
       await new Promise(r => setTimeout(r, 30));
-      try { const v = await action(inp.value, t => msg.textContent = t); close(); res(v); }
+      try { const v = await action(inp.value, t => msg.textContent = t, usr.value); close(); res(v); }
       catch (e) { msg.textContent = e.message; msg.className = 'gate-msg err'; btn.disabled = false; inp.select(); }
     };
-    btn.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go(); }; back.onclick = () => { close(); res(CANCEL); };
+    btn.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go(); }; usr.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); inp.focus(); } }; back.onclick = () => { close(); res(CANCEL); };
   });
 }
 // Ventana modal sencilla (edición/historial)
@@ -358,11 +380,11 @@ function teardown() {
 function wipeAll() {
   stopSession(); try { teardown(); } catch (e) { }
   vault?.lock(); vault = null; REAL = false;
-  $$('.overlay').forEach(o => o.hidden = true); $('#gatePw').value = ''; document.querySelector('.lightbox')?.remove();
+  $$('.overlay').forEach(o => o.hidden = true); $('#gatePw').value = ''; $('#gateUser').value = ''; document.querySelector('.lightbox')?.remove();
   document.body.classList.add('gated'); $('#gate').hidden = false; $('#btnLogout').hidden = true;
 }
 function logout(reason) { wipeAll(); history.replaceState(reason ? { bye: reason } : null, '', location.pathname); location.reload(); }
-window.__atlas = { wipe: wipeAll };  // útil para pruebas locales
+window.__atlas = { wipe: wipeAll, caseData: () => caseData };  // útil para pruebas locales
 addEventListener('pagehide', e => { if (e.persisted) wipeAll(); });   // al salir a caché «atrás/adelante» no se conserva nada
 addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
 
@@ -370,13 +392,19 @@ async function showCase(entry) {
   toast('Cargando…', 120000);
   if (caseData) teardown();
   REAL = entry === 'c.bin'; buildTour();
-  const opened = await vault.openCase(entry); caseData = opened.caseData; const fb = opened.fetchBuf;
+  const opened = await vault.openCase(entry); caseData = normalizeCaseReviews(opened.caseData); caseData.__iaRules = evaluateRules(caseData); const fb = opened.fetchBuf;
+  configureSlices(caseData.model?.slice || null);
   await viewer.loadCase(caseData, '', fb); updateInsets(); viewer.initView();
   const rt = document.querySelector('#right .tag'), rf = document.querySelector('#right .fine');
   if (caseData.volume) {
     const buf = await fb(caseData.volume.file); slice = new VolumeSliceView($('#sliceCanvas'), viewer, new Uint8Array(buf), caseData.volume);
     rt.textContent = 'estudio real'; rf.textContent = 'Cortes originales del estudio (submuestreados 2×), sincronizados con el modelo 3D.';
-  } else { slice = new SliceView($('#sliceCanvas'), viewer); rt.textContent = 'sintético'; rf.textContent = 'Corte calculado del modelo de ejemplo. Con un caso real, aquí se muestra la serie original del estudio junto al 3D.'; }
+  } else {
+    slice = new SliceView($('#sliceCanvas'), viewer);
+    slice.center = [0, 0, 0];
+    slice.planeSize = p => { const A = AX[p]; return [A.u[1] - A.u[0], A.v[1] - A.v[0]]; };
+    rt.textContent = 'sintético'; rf.textContent = 'Corte calculado del modelo de ejemplo. Con un caso real, aquí se muestra la serie original del estudio junto al 3D.';
+  }
   window.slice = slice;
   $('#caseChipText').textContent = `${caseData.case.title} · ${caseData.case.subtitle}`;
   $('.hero-k').textContent = REAL ? 'CASO REAL · CONFIDENCIAL' : 'CASO CLÍNICO DE EJEMPLO';
@@ -388,6 +416,21 @@ async function showCase(entry) {
   if (caseData.clinical?.documents?.length) { renderClinical($('#tab-clinic'), caseData, fb); labChips = createLabChips(viewer, caseData); spineGrp = createSpineLabels(viewer, caseData); $$('#tabClinic,#mnClinic,#btnClinic').forEach(b => b.hidden = false); }
   syncSlice(viewer.findings[0].id, false);
   try { await editor.attach(entry, vault.localKey(entry)); } catch (e) { console.error(e); toast('No se pudo abrir el historial local: ' + e.message); }
+  bindReviewClicks($('#tab-findings'), {
+    editor, modal, toast, esc,
+    onModify: fid => {
+      const f = viewer.findings.find(x => x.id === fid);
+      const original = f ? [f.title, f.location, f.note].filter(Boolean).join(' · ') : '';
+      editor.afterCommit = async (id, kind) => {
+        if (id !== fid || kind !== 'edicion') return;
+        editor.afterCommit = null;
+        await markModified(editor, fid, { original });
+        toast(TEXTS.alModificar, 5000);
+      };
+      editor.edit(fid);
+    },
+  });
+  applyReviewVisuals(viewer);
   if (!ar) await initAR();
   document.body.classList.add('ready'); window.__ready = true; window.__case = entry;
   if (params.has('nohero') || entry !== 'd.bin' || window.__heroSeen) $('#hero').classList.add('gone'); window.__heroSeen = true;
@@ -404,7 +447,7 @@ async function switchCase() {
 (async () => {
   try {
     // Todo el sitio (demo incluida) está cifrado: la clave vive solo en memoria; luego se abre el ejemplo y, con botón + contraseña del caso, el caso real
-    vault = await gate((pw, t) => unlock('vault/', pw, t), BYE ? { text: `Sesión cerrada por ${BYE}. Escribe la contraseña para volver a entrar.` } : {});
+    vault = await gate((pw, t, u) => unlock('vault/', pw, t, u), BYE ? { user: true, text: `Sesión cerrada por ${BYE}. Escribe tu usuario y contraseña para volver a entrar.` } : { user: true });
     $('#btnLogout').hidden = false; startSession(why => logout(why));
     await showCase('d.bin');
   } catch (e) { console.error(e); errors.push(String(e)); toast('Error al cargar: ' + e.message, 15000); }

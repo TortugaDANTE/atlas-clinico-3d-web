@@ -10,6 +10,7 @@
 <meta name="theme-color" content="#0a1017">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a1017'/%3E%3Cpath d='M16 7l7 4v8l-7 4-7-4v-8z' fill='none' stroke='%233fdcff' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/ia-review.css">
 <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 </head>
 <body class="mode-real gated">
@@ -56,7 +57,7 @@
 
   <div id="hero" class="hero">
     <div class="hero-k">CASO CLÍNICO DE EJEMPLO</div>
-    <div class="hero-t">Microlitiasis renal bilateral + calcificación extrarrenal</div>
+    <div class="hero-t">Quiste hepático + nódulo pulmonar (ejemplo ficticio)</div>
     <div class="hero-s">Tres toques para llegar al hallazgo: cuerpo completo → apagar sistemas → anomalía.</div>
     <div class="hero-b"><button class="btn primary" id="heroStart">Iniciar recorrido guiado</button><button class="btn ghost" id="heroClose">Explorar libremente</button></div>
   </div>
@@ -122,6 +123,7 @@
       <svg viewBox="0 0 32 32" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="none" stroke="#3fdcff" stroke-width="2"/><rect x="10" y="14" width="12" height="9" rx="2" fill="none" stroke="#3fdcff" stroke-width="2"/><path d="M12 14v-3a4 4 0 018 0v3" fill="none" stroke="#3fdcff" stroke-width="2"/></svg>
       <h1 id="gateTitle">Acceso privado</h1>
       <p id="gateText">Este sitio es privado. Todo el contenido está cifrado (AES-256-GCM) y se descifra únicamente en tu navegador; la contraseña no se envía a ningún servidor.</p>
+      <input id="gateUser" type="text" autocomplete="username" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="Usuario (opcional)" aria-label="Usuario" hidden>
       <input id="gatePw" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Contraseña" aria-label="Contraseña">
       <label class="gate-show"><input type="checkbox" id="gateShow"> Mostrar lo que escribo</label>
       <button class="btn primary" id="gateGo" type="button">Entrar</button>

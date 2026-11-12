@@ -23,6 +23,8 @@ export class Viewer extends EventTarget {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(36, 1, 5, 6000);
     this.defaultView = { pos: new THREE.Vector3(210, 120, 980), target: new THREE.Vector3(0, -5, 0) };
+    this._fitMM = { h: 615, w: 520 };
+    this._floorSize = 560;
     this.camera.position.copy(this.defaultView.pos);
     const pm = new THREE.PMREMGenerator(r);
     this.scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -73,6 +75,7 @@ export class Viewer extends EventTarget {
   // ---------- carga ----------
   async loadCase(data, base = '', fetchBuf = null) {
     this.case = data;
+    this._applyModelView(data.model || {});
     const geos = await loadCaseGeometries(data, base, fetchBuf);
     for (const def of data.model.organs) this._addOrgan(def, geos[def.id]);
     for (const f of data.findings) this._addFinding(f);
@@ -114,7 +117,7 @@ export class Viewer extends EventTarget {
   _addFinding(fd) {
     const host = this.organs.get(fd.organ); if (!host) { console.warn('Hallazgo sin órgano', fd); return; }
     const srcKey = normSource(fd.source), rgb = fd.priority ? '255,92,92' : SRC[srcKey].rgb;
-    const f = { data: fd, id: fd.id, host, srcKey, title: fd.title, location: fd.location, note: fd.note, size_mm: fd.size_mm, hu_max: fd.hu_max, hu_mean: fd.hu_mean, size_text: fd.size_text, hu_text: fd.hu_text, priority: !!fd.priority, objs: {} };
+    const f = { data: fd, id: fd.id, host, srcKey, title: fd.title, location: fd.location, note: fd.note, size_mm: fd.size_mm, hu_max: fd.hu_max, hu_mean: fd.hu_mean, size_text: fd.size_text, hu_text: fd.hu_text, priority: !!fd.priority, source: fd.source, review: fd.review, confidence: fd.confidence, evidence: fd.evidence, suggested_actions: fd.suggested_actions, audit: fd.audit, objs: {} };
     const pos = new THREE.Vector3(...fd.position_mm); f.pos = pos;
     const g = new THREE.Group(); host.group.add(g); f.g = g;
     // lesión 3D automática
@@ -268,10 +271,42 @@ export class Viewer extends EventTarget {
     const toT = target.clone(), toP = toT.clone().add(d.multiplyScalar(dist));
     this.tween = { t0: performance.now(), ms, from, toP, toT };
   }
+  _applyModelView(model = {}) {
+    // Optional per-case framing (full-body example). Absent fields keep the
+    // historical abdomen defaults so the real CT case is unchanged.
+    const v = model.view || {};
+    this.defaultView = {
+      pos: new THREE.Vector3(...(v.pos || [210, 120, 980])),
+      target: new THREE.Vector3(...(v.target || [0, -5, 0])),
+    };
+    this._fitMM = { h: v.fit_h_mm || 615, w: v.fit_w_mm || 520 };
+    this.controls.maxDistance = v.max_distance || 2200;
+    this.camera.far = v.camera_far || 6000;
+    this.camera.updateProjectionMatrix();
+    const fy = (v.floor_y != null) ? v.floor_y : -284;
+    this.shadow.position.y = fy;
+    this.grid.position.y = fy;
+    const fs = v.floor_size || 560;
+    if (this._floorSize !== fs) {
+      this._floorSize = fs;
+      this.shadow.geometry.dispose();
+      this.shadow.geometry = new THREE.PlaneGeometry(fs, fs);
+      const div = Math.max(16, Math.round(fs / 20));
+      this.model.remove(this.grid);
+      this.grid.geometry.dispose();
+      this.grid = new THREE.GridHelper(fs, div, 0x39d7ff, 0x1a6f8a);
+      this.grid.position.y = fy;
+      this.grid.material.transparent = true;
+      this.grid.material.opacity = 0.4;
+      this.grid.material.depthWrite = false;
+      this.model.add(this.grid);
+    }
+  }
   fitDist() {
     const W = this.stage.clientWidth || 1000, H = this.stage.clientHeight || 700, [l, r, t, b] = this.insets;
     const th = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)), asp = W / H;
-    const dh = (615 * H / Math.max(200, H - t - b)) / (2 * th), dw = (520 * W / Math.max(200, W - l - r)) / (2 * th * asp);
+    const boxH = this._fitMM?.h || 615, boxW = this._fitMM?.w || 520;
+    const dh = (boxH * H / Math.max(200, H - t - b)) / (2 * th), dw = (boxW * W / Math.max(200, W - l - r)) / (2 * th * asp);
     return Math.max(dh, dw);
   }
   resetView() { this.flyTo(this.defaultView.target, this.fitDist(), 800, this.defaultView.pos.clone().sub(this.defaultView.target)); }

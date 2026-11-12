@@ -7,7 +7,7 @@ export const FIELDS = [
   ['hu_text', 'Densidad (texto, p. ej. ≈ 370 UH)', 'input'], ['note', 'Descripción', 'textarea'], ['user_note', 'Nota del médico (opcional)', 'textarea'],
 ];
 const LABEL = Object.fromEntries(FIELDS.map(f => [f[0], f[1].replace(/ \(.*/, '')]));
-const KIND = { edicion: 'Edición', restauracion: 'Restauración', importado: 'Importado' };
+const KIND = { edicion: 'Edición', restauracion: 'Restauración', importado: 'Importado', revision: 'Revisión médica' };
 const CASE_ID = '__case';
 const same = (a, b) => FIELDS.every(([k]) => (a[k] ?? '') === (b[k] ?? ''));
 const fmt = ts => new Date(ts).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
@@ -17,13 +17,18 @@ export class Editor {
   async attach(entry, key) {
     this.detach(); this.entry = entry; this.store = await openStore(entry, key);
     this.orig.set(CASE_ID, { user_note: '' });
-    for (const f of this.viewer.findings) this.orig.set(f.id, Object.fromEntries(FIELDS.map(([k]) => [k, f[k] ?? ''])));
+    for (const f of this.viewer.findings) {
+      const o = Object.fromEntries(FIELDS.map(([k]) => [k, f[k] ?? '']));
+      if (f.review || f.data?.review) o.review = JSON.parse(JSON.stringify(f.review || f.data.review));
+      this.orig.set(f.id, o);
+    }
     await this.reload();
   }
   detach() { this.store?.close(); this.store = null; this.orig = new Map(); this.cur = new Map(); this.records = []; }
-  async reload() { // recalcula el estado vigente = original + última versión guardada de cada hallazgo
-    this.records = await this.store.list(); const last = new Map(); for (const r of this.records) last.set(r.fid, r);
-    this.cur = new Map(); for (const [fid, o] of this.orig) { const l = last.get(fid); this.cur.set(fid, { ...o, ...(l ? l.after : {}) }); }
+  async reload() { // estado vigente = original + todas las versiones, en orden (edición y revisión se mezclan)
+    this.records = await this.store.list();
+    this.cur = new Map(); for (const [fid, o] of this.orig) this.cur.set(fid, { ...o });
+    for (const r of this.records) { const prev = this.cur.get(r.fid) || {}; this.cur.set(r.fid, { ...prev, ...(r.after || {}) }); }
     for (const [fid, s] of this.cur) this.apply(fid, s); this.onChange();
   }
   apply(fid, s) { if (fid !== CASE_ID) this.viewer.updateFinding(fid, { ...s }); }
@@ -32,8 +37,10 @@ export class Editor {
   userNote(fid) { return this.cur.get(fid)?.user_note || ''; }
   async commit(fid, kind, after) {
     const before = { ...this.snap(fid) }; after = Object.fromEntries(FIELDS.map(([k]) => [k, (after[k] ?? '').trim?.() ?? after[k]]));
-    if (same(before, after)) { this.toast('Sin cambios.'); return false; }
-    await this.store.add({ fid, kind, before, after }); await this.reload(); return true;
+    if (same(before, after) && !this._forceReview) { this.toast('Sin cambios.'); return false; }
+    await this.store.add({ fid, kind, before, after }); await this.reload();
+    if (this.afterCommit) await this.afterCommit(fid, kind, { before, after });
+    return true;
   }
   // ---- Ventanas ----
   edit(fid) {
@@ -49,7 +56,13 @@ export class Editor {
   }
   history(fid) {
     const E = this.esc, isCase = fid === CASE_ID, rs = this.records.filter(r => r.fid === fid).reverse(), o = this.orig.get(fid);
-    const diff = (b, a) => FIELDS.filter(([k]) => (b[k] ?? '') !== (a[k] ?? '')).map(([k]) => `<div class="df"><b>${E(LABEL[k])}:</b> <s>${E(b[k] || '(vacío)')}</s> → <ins>${E(a[k] || '(vacío)')}</ins></div>`).join('');
+    const revLine = r => r && r.status ? `${r.status}${r.nota ? ' · ' + r.nota : ''}` : '';
+    const diff = (b, a) => {
+      const rows = FIELDS.filter(([k]) => (b[k] ?? '') !== (a[k] ?? '')).map(([k]) => `<div class="df"><b>${E(LABEL[k])}:</b> <s>${E(b[k] || '(vacío)')}</s> → <ins>${E(a[k] || '(vacío)')}</ins></div>`);
+      const br = revLine(b.review), ar = revLine(a.review);
+      if (br !== ar) rows.push(`<div class="df"><b>Revisión:</b> <s>${E(br || '(vacío)')}</s> → <ins>${E(ar || '(vacío)')}</ins></div>`);
+      return rows.join('');
+    };
     const body = this.modal.open(`<h1>Historial · ${isCase ? 'Notas del caso' : 'Hallazgo ' + E(fid)}</h1><div class="hist">${rs.map((r, i) => `<div class="hent ${i === 0 ? 'cur' : ''}"><div class="hh"><span>${fmt(r.ts)} · ${KIND[r.kind] || E(r.kind)}${i === 0 ? ' · vigente' : ''}</span>${i === 0 ? '' : `<button class="btn sm" data-restore="${r._id}">Restaurar esta versión</button>`}</div>${diff(r.before, r.after)}</div>`).join('') || '<p class="fine">Aún no hay ediciones.</p>'}
       <div class="hent ${rs.length ? '' : 'cur'}"><div class="hh"><span>Original del estudio${rs.length ? '' : ' · vigente'}</span>${rs.length ? '<button class="btn sm" data-restore="orig">Restaurar original</button>' : ''}</div>${FIELDS.filter(([k]) => o[k]).map(([k]) => `<div class="df"><b>${E(LABEL[k])}:</b> ${E(o[k])}</div>`).join('')}</div></div>
       <div class="ov-actions"><button class="btn primary" data-close>Cerrar</button></div>`);

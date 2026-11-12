@@ -11,6 +11,16 @@ const AX = {
 };
 export { AX };
 
+const AX_DEFAULT = JSON.parse(JSON.stringify(AX));
+/** Optional per-case 2D window. Passing null restores the abdomen defaults (real CT case). */
+export function configureSlices(frame) {
+  for (const k of Object.keys(AX_DEFAULT)) {
+    const src = AX_DEFAULT[k];
+    const over = (frame && frame[k]) || {};
+    Object.assign(AX[k], src, over, { axis: src.axis, name: src.name, label: src.label });
+  }
+}
+
 function project(plane, P) { // P: [x,y,z] -> imagen (mm)
   if (plane === 'axial') return [P[0], -P[2]];
   if (plane === 'coronal') return [P[0], -P[1]];

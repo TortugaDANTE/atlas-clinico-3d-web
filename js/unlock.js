@@ -1,5 +1,6 @@
 // Descifrado en el navegador (WebCrypto). Dos contraseñas:
-//  1) Contraseña del SITIO: PBKDF2-SHA256 -> AES-256-GCM. Cifra TODO (demo incluida).
+//  1) Acceso al SITIO (usuario + contraseña): cada usuario tiene su propia envoltura de la llave maestra (PBKDF2-SHA256, 1 M it., sal propia) en index.json;
+//     la llave maestra AES-256-GCM cifra TODO (demo incluida). No hay contraseñas ni nombres de usuario en archivos públicos. Usuario vacío = ADMIN.
 //  2) Contraseña del CASO (primer nombre + primer apellido del paciente, normalizada): capa interior AES-256-GCM
 //     que cifra además los archivos del caso real (necesita las dos claves).
 // Formato de cada capa: iv(12) || ciphertext+tag(16); AAD = nombre del archivo + sufijo. Las contraseñas nunca salen del navegador.
@@ -9,6 +10,7 @@ const hex2u8 = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
 const u82hex = u => Array.from(u, b => b.toString(16).padStart(2, '0')).join('');
 // Contraseña del sitio: NFC + sin espacios al inicio/fin (los teclados móviles suelen agregar un espacio); distingue mayúsculas/minúsculas
 export const normSite = s => s.normalize('NFC').trim();
+export const normUser = s => (s || '').normalize('NFC').trim().toUpperCase() || 'ADMIN';
 // Limpieza de versiones anteriores que guardaban la clave en sessionStorage
 try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('atlas-clinico-')) sessionStorage.removeItem(k); } catch (e) { }
 // Contraseña de caso: mayúsculas, sin acentos/diacríticos, espacios colapsados y recortados
@@ -26,7 +28,8 @@ async function localKey(raw, label) {
 }
 const aesDec = (key, buf, name, suffix) => crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12), additionalData: enc.encode(name + suffix) }, key, buf.slice(12));
 
-async function makeVault(base, idx, siteKey, siteRaw) {
+async function makeVault(base, idx, siteRaw) {
+  const siteKey = await aesKey(siteRaw);
   let cache = new Map(), caseKeys = new Map(), localKeys = new Map(), dead = false; // entry -> CryptoKey
   localKeys.set('', await localKey(siteRaw, 'site'));
   const caseOf = name => Object.entries(idx.cases || {}).find(([, c]) => c.files.includes(name));
@@ -45,7 +48,7 @@ async function makeVault(base, idx, siteKey, siteRaw) {
     }
     return cache.get(name);
   };
-  try { await get(idx.check); } catch (e) { throw new Error('Contraseña incorrecta. Revisa mayúsculas/minúsculas (puedes mostrar lo escrito con 👁) o recarga la página.'); }
+  try { await get(idx.check); } catch (e) { throw new Error('Usuario o contraseña incorrecta. Revisa mayúsculas/minúsculas (puedes mostrar lo escrito con 👁) o recarga la página.'); }
   const vault = {
     get,
     lock() { dead = true; cache = new Map(); caseKeys = new Map(); localKeys = new Map(); },  // suelta todas las claves y el contenido descifrado
@@ -79,13 +82,22 @@ async function makeVault(base, idx, siteKey, siteRaw) {
 async function getIndex(base) {
   if (!globalThis.crypto?.subtle) throw new Error('Este navegador necesita HTTPS (o localhost) para usar WebCrypto.');
   const idx = await (await fetch(`${base}index.json?t=${Date.now()}`, { cache: 'no-store' })).json();
-  if (idx.v !== 2 || idx.kdf !== 'PBKDF2-SHA256' || idx.iterations < 600000) throw new Error('Formato de bóveda no soportado.');
+  if (![2, 3].includes(idx.v) || idx.kdf !== 'PBKDF2-SHA256' || idx.iterations < 600000) throw new Error('Formato de bóveda no soportado.');
   for (const c of Object.values(idx.cases || {})) if (c.iterations < 600000) throw new Error('Formato de bóveda no soportado.');
   return idx;
 }
-export async function unlock(base, password, onProgress = () => { }) {
+// Llave maestra: v3 = envolturas por usuario (se prueban todas en paralelo; solo abre la del usuario+contraseña correctos); v2 = contraseña única (compatibilidad)
+export async function unlock(base, password, onProgress = () => { }, user = '') {
   const idx = await getIndex(base);
   onProgress('Derivando clave…');
-  const raw = await kdf(normSite(password), idx.salt, idx.iterations);
-  return makeVault(base, idx, await aesKey(raw), raw);
+  if (idx.v === 2) { const raw = await kdf(normSite(password), idx.salt, idx.iterations); return makeVault(base, idx, raw); }
+  const secret = normUser(user) + '\u0000' + normSite(password);
+  const tries = (idx.users || []).map(async u => {
+    const kek = await aesKey(await kdf(secret, u.salt, u.iterations));
+    const w = hex2u8(u.wrap);
+    return new Uint8Array(await aesDec(kek, w, 'master', '|wrap1'));   // falla si usuario/contraseña no corresponden
+  });
+  const found = await Promise.any(tries).catch(() => null);
+  if (!found) throw new Error('Usuario o contraseña incorrecta. Revisa mayúsculas/minúsculas (puedes mostrar lo escrito con 👁) o recarga la página.');
+  return makeVault(base, idx, found);
 }
