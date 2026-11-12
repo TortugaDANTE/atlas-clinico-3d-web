@@ -204,3 +204,22 @@ details.full>summary{cursor:pointer;font-size:12px;color:var(--acc);font-weight:
 }
 
 .gate-show{display:flex;align-items:center;gap:8px;justify-content:center;font-size:12.5px;color:var(--mu)}.gate-card .gate-show input{width:auto;padding:0}
+
+.badge.prio{color:#ff8a8a;background:rgba(255,92,92,.14);border-color:#ff6b6b}
+
+/* actualización 2: prioridad, gráfica, imágenes */
+.ficha.st-crit{border-color:rgba(255,92,92,.6);border-left-color:#ff5c5c;background:rgba(255,92,92,.06)}
+.stat.st-crit{color:#ff8a8a;background:rgba(255,92,92,.16)}.stat.st-crit i{background:#ff5c5c}
+.chart{margin:8px 0;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:10px}
+.chart .ct{font-size:12px;font-weight:700;margin-bottom:6px}.chart .ct small{color:var(--mu);font-weight:500}
+.bar{display:grid;grid-template-columns:34px 1fr 38px;gap:6px;align-items:center;margin:3px 0;font-size:12px}
+.bar .bt{position:relative;height:12px;background:rgba(255,255,255,.07);border-radius:6px;overflow:visible}
+.bar .bt i{display:block;height:100%;background:linear-gradient(90deg,#2fbf93,#5fe0b8);border-radius:6px}
+.bar .bt u{position:absolute;top:-3px;bottom:-3px;width:2px;background:#ffb547;text-decoration:none}
+.bar b{text-align:right}.bar .bl{color:var(--mu);font-weight:600}
+.chart .cl{font-size:10.5px;color:var(--mu);margin-top:4px}.chart .cl u{display:inline-block;width:10px;height:2px;background:#ffb547;vertical-align:middle}
+.imgs{display:grid;gap:8px;margin:8px 0}.imgs figure{margin:0}.imgs img{width:100%;border-radius:8px;border:1px solid var(--line);background:#000;min-height:40px;cursor:zoom-in;display:block}
+.imgs figcaption{font-size:10.5px;color:var(--mu);margin-top:3px}
+.lightbox{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px;cursor:zoom-out}
+.lightbox img{max-width:100%;max-height:88vh;object-fit:contain}.lightbox div{color:#cfd9e3;font-size:12px}
+@media print{#printSheet .imgs img{max-width:100%;max-height:230mm;break-inside:avoid;background:#fff;border-color:#bbb;cursor:auto}#printSheet figcaption{color:#444}#printSheet .ficha.st-crit{border-left-color:#d22;background:#fff0f0}#printSheet .stat.st-crit{background:#fdd;color:#900}#printSheet .bar .bt{background:#eee}#printSheet .bar .bt i{background:#2fbf93}#printSheet .chart{background:#fafafa}}

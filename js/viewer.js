@@ -101,8 +101,8 @@ export class Viewer extends EventTarget {
 
   _addFinding(fd) {
     const host = this.organs.get(fd.organ); if (!host) { console.warn('Hallazgo sin órgano', fd); return; }
-    const srcKey = normSource(fd.source), rgb = SRC[srcKey].rgb;
-    const f = { data: fd, id: fd.id, host, srcKey, title: fd.title, location: fd.location, note: fd.note, size_mm: fd.size_mm, hu_max: fd.hu_max, hu_mean: fd.hu_mean, size_text: fd.size_text, hu_text: fd.hu_text, objs: {} };
+    const srcKey = normSource(fd.source), rgb = fd.priority ? '255,92,92' : SRC[srcKey].rgb;
+    const f = { data: fd, id: fd.id, host, srcKey, title: fd.title, location: fd.location, note: fd.note, size_mm: fd.size_mm, hu_max: fd.hu_max, hu_mean: fd.hu_mean, size_text: fd.size_text, hu_text: fd.hu_text, priority: !!fd.priority, objs: {} };
     const pos = new THREE.Vector3(...fd.position_mm); f.pos = pos;
     const g = new THREE.Group(); host.group.add(g); f.g = g;
     // lesión 3D automática

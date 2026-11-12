@@ -4,7 +4,7 @@ import { SliceView, AX } from './slice.js';
 import { VolumeSliceView } from './volslice.js';
 import { unlock, restore } from './unlock.js';
 import { ARController } from './ar.js';
-import { renderClinical, createLabChips } from './clinical.js';
+import { renderClinical, createLabChips, createSpineLabels } from './clinical.js';
 import { SRC, sizeText, huText } from './cards.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -66,7 +66,7 @@ function renderFindings() {
   for (const f of viewer.findings) {
     const sel = viewer.selected === f.id;
     h += `<div class="fcard ${sel ? 'sel' : ''}" data-f="${f.id}"><h4>${f.id} · ${esc(f.title)}</h4><div class="loc">${esc(f.location)}</div>
-      <div class="m">${sizeText(f.size_mm, f.size_text)}<i>·</i>${huText(f)}</div>${badge(f)}
+      <div class="m">${sizeText(f.size_mm, f.size_text)}<i>·</i>${huText(f)}</div>${badge(f)}${f.priority ? ' <span class="badge prio">PRIORIDAD</span>' : ''}
       ${sel ? `<div class="nt">${esc(f.note)}</div><div class="act"><button class="btn sm" data-fiso="${f.id}">Aislar órgano</button><button class="btn sm" data-fslice="${f.id}">Ver corte</button></div>` : ''}</div>`;
   }
   h += '<h3 class="sec">Órganos sin hallazgos</h3>';
@@ -153,10 +153,10 @@ function setSheet(name) {
 }
 function setTab(name) { $$('#leftTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name)); $$('.tabbody').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name)); syncClinicMode(); }
 // Modo «Clínicos»: etiquetas de laboratorio junto a los riñones; se apagan las infografías de hallazgos para no encimar y se restauran al salir
-let labChips = null, clinicOn = false, labelsBefore = true;
+let labChips = null, spineGrp = null, clinicOn = false, labelsBefore = true;
 function syncClinicMode() {
   const on = !!labChips && $('#tab-clinic').classList.contains('on') && (innerWidth > 760 || document.body.classList.contains('sheet-clinic'));
-  if (on === clinicOn) return; clinicOn = on; labChips.visible = on;
+  if (on === clinicOn) return; clinicOn = on; labChips.visible = on; if (!on && spineGrp) spineGrp.visible = false;
   if (on) { labelsBefore = viewer.labelsOn; viewer.setLabels(false); } else viewer.setLabels(labelsBefore);
 }
 function showKidneys() {
@@ -165,7 +165,14 @@ function showKidneys() {
   if (a && b) viewer.flyTo(viewer.worldCenterOf(a).add(viewer.worldCenterOf(b)).multiplyScalar(0.5), viewer.fitRegion(330), 900, new THREE.Vector3(0, 0.1, 1));
 }
 $('#btnClinic').addEventListener('click', () => { if (viewer.narrow) setSheet('clinic'); else { setTab('clinic'); } });
-$('#tab-clinic').addEventListener('click', e => { if (e.target.closest('[data-kid]')) showKidneys(); });
+$('#tab-clinic').addEventListener('click', e => {
+  if (e.target.closest('[data-kid]')) showKidneys();
+  const fl = e.target.closest('[data-fly]'); if (fl) { const id = fl.dataset.fly; labelsBefore = true; viewer.setLabels(true); viewer.select(id); viewer.flyToFinding(id); if (viewer.narrow) setSheet(null); return; }
+  const ov = e.target.closest('[data-overlay]'); if (ov && spineGrp) {
+    spineGrp.visible = !spineGrp.visible; ov.textContent = spineGrp.visible ? 'Ocultar niveles' : 'Ver niveles en 3D';
+    if (spineGrp.visible) { viewer.select(null); labelsBefore = false; viewer.setLabels(false); viewer.setOrganVisible('huesos', true); const c = spineGrp.userData.center; if (c) viewer.flyTo(c, viewer.fitRegion(380), 900, new THREE.Vector3(0.55, 0.05, 1)); }
+  }
+});
 $('#leftTabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
 $('#mnav').addEventListener('click', e => { const b = e.target.closest('[data-sheet]'); if (b) setSheet(b.dataset.sheet); });
 
@@ -299,7 +306,7 @@ function gate(action, o = {}) {
     $('.hero-t').textContent = caseData.case.subtitle;
     if (REAL) { $('#disclaimer').textContent = caseData.case.disclaimer; $('.dot').style.background = '#ff6b6b'; document.title = 'Atlas Clínico 3D'; }
     renderLayers(); renderFindings(); renderCase(); renderAbout();
-    if (caseData.clinical?.documents?.length) { renderClinical($('#tab-clinic'), caseData); labChips = createLabChips(viewer, caseData); $$('#tabClinic,#mnClinic,#btnClinic').forEach(b => b.hidden = false); }
+    if (caseData.clinical?.documents?.length) { renderClinical($('#tab-clinic'), caseData, opened.fetchBuf); labChips = createLabChips(viewer, caseData); spineGrp = createSpineLabels(viewer, caseData); $$('#tabClinic,#mnClinic,#btnClinic').forEach(b => b.hidden = false); }
     syncSlice(viewer.findings[0].id, false);
     await initAR();
     document.body.classList.add('ready'); window.__ready = true;

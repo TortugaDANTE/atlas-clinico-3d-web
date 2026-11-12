@@ -30,7 +30,7 @@ function wrap(g, text, maxW, maxLines) {
 const FONT = '"Inter","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif';
 
 export function drawPill(f, { holo = false } = {}) {
-  const c = document.createElement('canvas'); c.width = 330; c.height = 84; const g = c.getContext('2d'), src = SRC[f.srcKey], accent = `rgb(${src.rgb})`;
+  const c = document.createElement('canvas'); c.width = 330; c.height = 84; const g = c.getContext('2d'), src = SRC[f.srcKey], accent = f.priority ? 'rgb(255,92,92)' : `rgb(${src.rgb})`;
   rr(g, 2, 2, 326, 80, 40); g.fillStyle = holo ? 'rgba(4,22,34,0.85)' : 'rgba(14,20,28,0.9)'; g.fill();
   g.lineWidth = 3; g.strokeStyle = accent; g.stroke();
   g.fillStyle = accent; g.beginPath(); g.arc(42, 42, 27, 0, 7); g.fill();
@@ -49,7 +49,7 @@ export function drawCard(f, { expanded = false, holo = false, organLabel = '' } 
   const noteLines = expanded ? wrap(g, f.note, W - pad * 2 - 12, 4) : [];
   const H = expanded ? 170 + 36 + noteLines.length * 32 + 52 : 188;
   c.height = H; g = c.getContext('2d');
-  const accent = `rgb(${src.rgb})`;
+  const accent = f.priority ? 'rgb(255,92,92)' : `rgb(${src.rgb})`;
   rr(g, 2, 2, W - 4, H - 4, 22);
   g.fillStyle = holo ? 'rgba(4,22,34,0.82)' : 'rgba(14,20,28,0.88)'; g.fill();
   g.lineWidth = holo ? 3 : 2; g.strokeStyle = holo ? 'rgba(80,225,255,0.85)' : 'rgba(255,255,255,0.16)'; g.stroke();
