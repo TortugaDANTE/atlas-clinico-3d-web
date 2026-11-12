@@ -1,0 +1,1 @@
+- vendor/jspdf.umd.min.js: jsPDF 4.2.1 (MIT). js/pdf-fonts.js: DejaVu Sans subset.

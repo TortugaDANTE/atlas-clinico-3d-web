@@ -55,13 +55,13 @@ function fichaHtml(d, { full = false } = {}) {
   if (d.images?.length) h += `<div class="imgs">${d.images.map(im => `<figure><img data-img="${esc(im.file)}" alt="${esc(im.caption)}" ${full ? '' : 'loading="lazy"'}><figcaption>${esc(im.caption)}</figcaption></figure>`).join('')}</div>`;
   if (!full && d.actions?.length) h += `<div class="acts">${d.actions.map(a => `<button class="btn sm" ${a.fly ? `data-fly="${esc(a.fly)}"` : ''} ${a.overlay ? `data-overlay="${esc(a.overlay)}"` : ''}>${esc(a.label)}</button>`).join('')}</div>`;
   if (d.markdown) h += full ? `<div class="md">${mdToHtml(d.markdown)}</div>`
-    : `<details class="full"><summary>Ver documento completo</summary><div class="md">${mdToHtml(d.markdown)}</div></details><div class="acts"><button class="btn sm" data-dl="${esc(d.id)}">⬇ Descargar .md</button></div>`;
+    : `<details class="full"><summary>Ver documento completo</summary><div class="md">${mdToHtml(d.markdown)}</div></details><div class="acts"><button class="btn sm" data-dl="${esc(d.id)}">⬇ Descargar .md</button><button class="btn sm" data-pdf1="${esc(d.id)}">📄 PDF de esta ficha</button></div>`;
   return h + '</article>';
 }
 export function renderClinical(el, caseData, fetchBuf) {
   const docs = caseData.clinical?.documents || [];
   const hl = []; for (const d of docs) for (const k of d.key_values || []) if (k.highlight && !hl.some(x => x.name === k.name)) hl.push(k);
-  let h = `<div class="ctools"><button class="btn sm" data-print="1">🖨 Imprimir / PDF</button><button class="btn sm" data-dlall="1">⬇ Todo (.md)</button></div>`;
+  let h = `<div class="ctools"><button class="btn sm primary" data-pdf="1">📄 Exportar PDF</button><button class="btn sm" data-print="1">🖨 Imprimir</button><button class="btn sm" data-dlall="1">⬇ Todo (.md)</button></div>`;
   if (hl.length) h += `<h3 class="sec">Junto a los riñones</h3><div class="hlrow">${hl.map(kvHtml).join('')}</div><button class="btn sm" data-kid="1">Ver en los riñones (3D)</button>`;
   h += `<h3 class="sec">Fichas clínicas <em class="cnt">${docs.length}</em></h3>` + docs.map(d => fichaHtml(d)).join('');
   h += `<div class="note">Apoyo para el médico tratante; no sustituye el criterio clínico ni el reporte original.</div>`;
@@ -71,6 +71,11 @@ export function renderClinical(el, caseData, fetchBuf) {
     const dl = e.target.closest('[data-dl]'); if (dl) { const d = docs.find(x => x.id === dl.dataset.dl); if (d) download(d.filename || d.id + '.md', d.markdown); return; }
     if (e.target.closest('[data-dlall]')) download('fichas-clinicas.md', docs.map(d => d.markdown).join('\n\n---\n\n'));
     if (e.target.closest('[data-print]')) printAll(caseData, fetchBuf);
+    const pb = e.target.closest('[data-pdf],[data-pdf1]'); if (pb && !pb.disabled) {
+      const old = pb.textContent; pb.disabled = true; pb.textContent = 'Generando PDF…';
+      import('./pdf.js').then(m => m.exportPdf(caseData, fetchBuf, pb.dataset.pdf1 ? { ids: [pb.dataset.pdf1], filename: `ficha-${pb.dataset.pdf1}.pdf` } : {})).then(r => { pb.textContent = `✓ PDF listo (${r.pages} págs.)`; setTimeout(() => { pb.textContent = old; }, 2500); })
+        .catch(err => { pb.textContent = 'Error: ' + err.message; setTimeout(() => { pb.textContent = old; }, 4000); }).finally(() => { pb.disabled = false; });
+    }
   };
 }
 // Imágenes del caso (cifradas): se descifran bajo demanda con fetchBuf y se muestran como blob local; nunca salen del navegador
@@ -87,16 +92,21 @@ function download(name, text) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' })); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
-// Vista imprimible (todas las fichas completas); el navegador permite «Guardar como PDF»
-export async function printAll(caseData, fetchBuf) {
+// Vista imprimible (hoja blanca clínica): portada con índice, una ficha por página, encabezado y pie en cada hoja (ver @media print)
+export async function printAll(caseData, fetchBuf, ids = null) {
   let ps = document.getElementById('printSheet'); if (!ps) { ps = document.createElement('div'); ps.id = 'printSheet'; document.body.appendChild(ps); }
-  const c = caseData.case, docs = caseData.clinical?.documents || [];
-  ps.innerHTML = `<h1>Atlas Clínico 3D · Fichas clínicas</h1><p class="pmeta"><b>${esc(c.patient)}</b><br>${esc(c.study)} · ${esc(c.date)} · ${esc(c.institution)}</p>` + docs.map(d => fichaHtml(d, { full: true })).join('') +
-    `<p class="pfoot">${esc(c.disclaimer)} Documento generado en el navegador el ${new Date().toLocaleString('es-MX')}.</p>`;
+  const c = caseData.case, docs = (caseData.clinical?.documents || []).filter(d => !ids || ids.includes(d.id));
+  const caseLine = [c.title, c.id].filter(Boolean).join(' · ') + (c.date ? ' · Estudio ' + c.date : '');
+  ps.innerHTML = `<div class="phdr"><b>Atlas Clínico 3D · Fichas clínicas</b><span>${esc(c.patient)}<br>${esc(caseLine)}</span></div>
+    <div class="pftr"><b>Interpretación IA, no es reporte oficial.</b><span>Apoyo para el médico tratante; no sustituye el criterio clínico. Generado en el navegador: ${esc(new Date().toLocaleString('es-MX'))}</span></div>
+    <section class="pcover"><h1>Fichas clínicas</h1><table>${[['Paciente', c.patient], ['Caso', caseLine], ['Estudio', c.study], ['Institución', c.institution]].filter(r => r[1]).map(r => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>
+    <p>${esc(c.disclaimer || '')}</p><h2>Contenido (${docs.length} fichas)</h2><ol class="pidx">${docs.map(d => `<li><b>${esc(d.title)}</b><small>${esc(d.status?.text || '')}</small></li>`).join('')}</ol></section>` +
+    docs.map(d => fichaHtml(d, { full: true })).join('');
   loadImages(ps, fetchBuf); await Promise.all([...ps.querySelectorAll('img[data-img]')].map(im => new Promise(r => { if (im.complete && im.src) r(); else { im.onload = im.onerror = r; setTimeout(r, 4000); } })));
   const done = () => { removeEventListener('afterprint', done); ps.innerHTML = ''; }; addEventListener('afterprint', done);
   setTimeout(() => window.print(), 150);
 }
+export function revokeImages() { for (const p of imgUrls.values()) p.then(u => URL.revokeObjectURL(u)).catch(() => { }); imgUrls.clear(); document.getElementById('printSheet')?.remove(); document.querySelector('.lightbox')?.remove(); }
 
 // ---- Etiquetas 3D junto a cada riñón (solo mientras el panel Clínicos está abierto) ----
 function chipSprite(title, rows) {

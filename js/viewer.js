@@ -8,7 +8,7 @@ import { drawCard, drawPill, cardTexture, SRC, normSource } from './cards.js';
 import { fbm } from './noise.js';
 
 const HOLO = 0x3fdcff;
-const HOLO_SYS = { oseo: 0x9fe6ff, urinario: 0x3fdcff, vascular: 0x4d9dff, digestivo: 0x2fe0c4, muscular: 0x5db4ff, cuerpo: 0x3fdcff, hallazgos: 0xffd58a };
+const HOLO_SYS = { oseo: 0x9fe6ff, urinario: 0x3fdcff, vascular: 0x4d9dff, digestivo: 0x2fe0c4, muscular: 0x5db4ff, cuerpo: 0x3fdcff, hallazgos: 0xffd58a, cardiaco: 0xff7a8a, respiratorio: 0x7ad7ff, nervioso: 0xe6d9a0 };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
 export class Viewer extends EventTarget {
@@ -78,6 +78,18 @@ export class Viewer extends EventTarget {
     for (const f of data.findings) this._addFinding(f);
     this.refresh();
     this.emit('loaded');
+  }
+  // Vacía el caso cargado (mallas, hallazgos, objetos extra del modelo) liberando memoria de GPU; la escena y la cámara se conservan
+  clearCase() {
+    const kill = o => o.traverse(c => { c.geometry?.dispose?.(); const ms = [].concat(c.material || []); for (const m of ms) { m.map?.dispose?.(); m.bumpMap?.dispose?.(); m.dispose?.(); } });
+    for (const ch of [...this.model.children]) { if (ch === this.shadow || ch === this.grid) continue; this.model.remove(ch); kill(ch); }
+    this.organs = new Map(); this.findings = []; this.selected = null; this.isolated = null; this.explodeT = 0; this.explodeTarget = 0; this.tween = null; this.hover = null; this.case = null;
+    this.labelsOn = true; this.markersOn = true; this.lesionsOn = true; this.seeThrough = true;
+  }
+  // Cambia campos visibles de un hallazgo (edición local) y redibuja su tarjeta 3D
+  updateFinding(id, patch) {
+    const f = this.findings.find(x => x.id === id); if (!f) return; Object.assign(f, patch);
+    this._drawCard(f); this._layoutCards?.(); this.emit('state');
   }
   _addOrgan(def, geo) {
     const group = new THREE.Group(); group.name = def.id;

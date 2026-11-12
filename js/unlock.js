@@ -3,13 +3,14 @@
 //  2) Contraseña del CASO (primer nombre + primer apellido del paciente, normalizada): capa interior AES-256-GCM
 //     que cifra además los archivos del caso real (necesita las dos claves).
 // Formato de cada capa: iv(12) || ciphertext+tag(16); AAD = nombre del archivo + sufijo. Las contraseñas nunca salen del navegador.
-// Tras desbloquear, las claves derivadas (no las contraseñas) quedan solo en sessionStorage de esta pestaña.
+// Tras desbloquear, las claves quedan SOLO en memoria (CryptoKey no extraíbles): nada en URL, localStorage ni sessionStorage. Recargar o cerrar sesión las borra.
 const enc = new TextEncoder(), dec = new TextDecoder();
 const hex2u8 = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
 const u82hex = u => Array.from(u, b => b.toString(16).padStart(2, '0')).join('');
 // Contraseña del sitio: NFC + sin espacios al inicio/fin (los teclados móviles suelen agregar un espacio); distingue mayúsculas/minúsculas
 export const normSite = s => s.normalize('NFC').trim();
-const SK = 'atlas-clinico-k', CK = 'atlas-clinico-ck:';
+// Limpieza de versiones anteriores que guardaban la clave en sessionStorage
+try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('atlas-clinico-')) sessionStorage.removeItem(k); } catch (e) { }
 // Contraseña de caso: mayúsculas, sin acentos/diacríticos, espacios colapsados y recortados
 export const normCase = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 
@@ -18,15 +19,23 @@ async function kdf(pw, saltHex, iterations) {
   return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: hex2u8(saltHex), iterations }, km, 256));
 }
 const aesKey = raw => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+// Llave local (HKDF de la clave del sitio o del caso) para cifrar el historial/respaldo; no extraíble
+async function localKey(raw, label) {
+  const k = await crypto.subtle.importKey('raw', raw, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: enc.encode('atlas-clinico-local-v1:' + label) }, k, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
 const aesDec = (key, buf, name, suffix) => crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12), additionalData: enc.encode(name + suffix) }, key, buf.slice(12));
 
-async function makeVault(base, idx, siteKey, siteRawHex) {
-  const cache = new Map(), caseKeys = new Map(); // entry -> CryptoKey
+async function makeVault(base, idx, siteKey, siteRaw) {
+  let cache = new Map(), caseKeys = new Map(), localKeys = new Map(), dead = false; // entry -> CryptoKey
+  localKeys.set('', await localKey(siteRaw, 'site'));
   const caseOf = name => Object.entries(idx.cases || {}).find(([, c]) => c.files.includes(name));
   const get = (name) => {
+    if (dead) return Promise.reject(new Error('Sesión cerrada'));
     if (!cache.has(name)) {
       const p = (async () => {
-        const r = await fetch(`${base}${name}?v=${idx.ver || ''}`, { cache: 'no-cache' });  // ?v= evita archivos viejos en caché con un index.json nuevo if (!r.ok) throw new Error('Falta ' + name);
+        const r = await fetch(`${base}${name}?v=${idx.ver || ''}`, { cache: 'no-cache' }); // ?v= evita archivos viejos en caché con un index.json nuevo
+        if (!r.ok) throw new Error('Falta ' + name);
         let buf = new Uint8Array(await aesDec(siteKey, new Uint8Array(await r.arrayBuffer()), name, idx.aad_suffix));
         const c = caseOf(name);
         if (c) { const k = caseKeys.get(c[0]); if (!k) throw new Error('Caso bloqueado'); buf = new Uint8Array(await aesDec(k, buf, name, c[1].aad_suffix)); }
@@ -37,22 +46,21 @@ async function makeVault(base, idx, siteKey, siteRawHex) {
     return cache.get(name);
   };
   try { await get(idx.check); } catch (e) { throw new Error('Contraseña incorrecta. Revisa mayúsculas/minúsculas (puedes mostrar lo escrito con 👁) o recarga la página.'); }
-  sessionStorage.setItem(SK, siteRawHex);
   const vault = {
     get,
-    lock() { sessionStorage.removeItem(SK); for (const e of Object.keys(idx.cases || {})) sessionStorage.removeItem(CK + e); },
+    lock() { dead = true; cache = new Map(); caseKeys = new Map(); localKeys = new Map(); },  // suelta todas las claves y el contenido descifrado
+    get locked() { return dead; },
+    // Llave AES-GCM (cifrar/descifrar) para datos locales del caso: derivada de la clave del caso si está protegido, o de la del sitio
+    localKey(entry) { return localKeys.get(idx.cases?.[entry] ? entry : '') || null; },
     isCaseProtected: entry => !!(idx.cases || {})[entry],
-    async _setCaseKey(entry, raw, persist) {
+    async _setCaseKey(entry, raw) {
       const c = idx.cases[entry]; caseKeys.set(entry, await aesKey(raw));
       try { await get(c.check); } catch (e) { caseKeys.delete(entry); throw new Error('Contraseña del caso incorrecta.'); }
-      if (persist) sessionStorage.setItem(CK + entry, u82hex(raw));
+      localKeys.set(entry, await localKey(raw, 'case:' + entry));
     },
-    async hasCaseKey(entry) { // ¿ya hay clave de caso válida en esta pestaña?
-      if (caseKeys.has(entry)) return true; const s = sessionStorage.getItem(CK + entry); if (!s) return false;
-      try { await vault._setCaseKey(entry, hex2u8(s), false); return true; } catch (e) { sessionStorage.removeItem(CK + entry); return false; }
-    },
+    async hasCaseKey(entry) { return caseKeys.has(entry); },  // ¿ya se abrió este caso en esta sesión?
     async unlockCase(entry, casePw) {
-      const c = idx.cases[entry]; await vault._setCaseKey(entry, await kdf(normCase(casePw), c.salt, c.iterations), true);
+      const c = idx.cases[entry]; await vault._setCaseKey(entry, await kdf(normCase(casePw), c.salt, c.iterations));
     },
     async openCase(entry) {
       const caseData = JSON.parse(dec.decode(await get(entry)));
@@ -79,11 +87,5 @@ export async function unlock(base, password, onProgress = () => { }) {
   const idx = await getIndex(base);
   onProgress('Derivando clave…');
   const raw = await kdf(normSite(password), idx.salt, idx.iterations);
-  return makeVault(base, idx, await aesKey(raw), u82hex(raw));
-}
-// Reabre la bóveda con la clave guardada en esta pestaña (null si no hay o ya no sirve)
-export async function restore(base) {
-  const raw = sessionStorage.getItem(SK); if (!raw) return null;
-  try { const idx = await getIndex(base); return await makeVault(base, idx, await aesKey(hex2u8(raw)), raw); }
-  catch (e) { sessionStorage.removeItem(SK); return null; }
+  return makeVault(base, idx, await aesKey(raw), raw);
 }
