@@ -7,6 +7,8 @@
 const enc = new TextEncoder(), dec = new TextDecoder();
 const hex2u8 = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
 const u82hex = u => Array.from(u, b => b.toString(16).padStart(2, '0')).join('');
+// Contraseña del sitio: NFC + sin espacios al inicio/fin (los teclados móviles suelen agregar un espacio); distingue mayúsculas/minúsculas
+export const normSite = s => s.normalize('NFC').trim();
 const SK = 'atlas-clinico-k', CK = 'atlas-clinico-ck:';
 // Contraseña de caso: mayúsculas, sin acentos/diacríticos, espacios colapsados y recortados
 export const normCase = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
@@ -24,7 +26,7 @@ async function makeVault(base, idx, siteKey, siteRawHex) {
   const get = (name) => {
     if (!cache.has(name)) {
       const p = (async () => {
-        const r = await fetch(base + name); if (!r.ok) throw new Error('Falta ' + name);
+        const r = await fetch(`${base}${name}?v=${idx.ver || ''}`, { cache: 'no-cache' });  // ?v= evita archivos viejos en caché con un index.json nuevo if (!r.ok) throw new Error('Falta ' + name);
         let buf = new Uint8Array(await aesDec(siteKey, new Uint8Array(await r.arrayBuffer()), name, idx.aad_suffix));
         const c = caseOf(name);
         if (c) { const k = caseKeys.get(c[0]); if (!k) throw new Error('Caso bloqueado'); buf = new Uint8Array(await aesDec(k, buf, name, c[1].aad_suffix)); }
@@ -34,7 +36,7 @@ async function makeVault(base, idx, siteKey, siteRawHex) {
     }
     return cache.get(name);
   };
-  try { await get(idx.check); } catch (e) { throw new Error('Contraseña incorrecta.'); }
+  try { await get(idx.check); } catch (e) { throw new Error('Contraseña incorrecta. Revisa mayúsculas/minúsculas (puedes mostrar lo escrito con 👁) o recarga la página.'); }
   sessionStorage.setItem(SK, siteRawHex);
   const vault = {
     get,
@@ -68,7 +70,7 @@ async function makeVault(base, idx, siteKey, siteRawHex) {
 }
 async function getIndex(base) {
   if (!globalThis.crypto?.subtle) throw new Error('Este navegador necesita HTTPS (o localhost) para usar WebCrypto.');
-  const idx = await (await fetch(base + 'index.json', { cache: 'no-store' })).json();
+  const idx = await (await fetch(`${base}index.json?t=${Date.now()}`, { cache: 'no-store' })).json();
   if (idx.v !== 2 || idx.kdf !== 'PBKDF2-SHA256' || idx.iterations < 600000) throw new Error('Formato de bóveda no soportado.');
   for (const c of Object.values(idx.cases || {})) if (c.iterations < 600000) throw new Error('Formato de bóveda no soportado.');
   return idx;
@@ -76,7 +78,7 @@ async function getIndex(base) {
 export async function unlock(base, password, onProgress = () => { }) {
   const idx = await getIndex(base);
   onProgress('Derivando clave…');
-  const raw = await kdf(password, idx.salt, idx.iterations);
+  const raw = await kdf(normSite(password), idx.salt, idx.iterations);
   return makeVault(base, idx, await aesKey(raw), u82hex(raw));
 }
 // Reabre la bóveda con la clave guardada en esta pestaña (null si no hay o ya no sirve)

@@ -265,8 +265,9 @@ function gate(action, o = {}) {
   document.body.classList.add('gated'); const g = $('#gate'), inp = $('#gatePw'), msg = $('#gateMsg'), btn = $('#gateGo');
   $('#gateTitle').textContent = o.title || 'Acceso privado';
   if (o.text) $('#gateText').textContent = o.text;
-  inp.placeholder = o.placeholder || 'Contraseña'; inp.setAttribute('aria-label', inp.placeholder); inp.autocomplete = o.auto || 'current-password';
+  inp.placeholder = o.placeholder || 'Contraseña'; inp.setAttribute('aria-label', inp.placeholder); inp.autocomplete = 'off';
   $('#gateBack').hidden = !o.back; btn.textContent = o.button || 'Entrar'; btn.disabled = false; msg.textContent = ''; inp.value = '';
+  $('#gateShow').checked = false; inp.type = 'password'; $('#gateShow').onchange = e => { inp.type = e.target.checked ? 'text' : 'password'; };
   g.hidden = false; inp.focus();
   return new Promise(res => {
     const go = async () => {
