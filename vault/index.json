@@ -1,0 +1,1 @@
+{"v": 2, "cipher": "AES-256-GCM", "kdf": "PBKDF2-SHA256", "iterations": 1000000, "salt": "85fab333bd2573c345727268bf073954", "check": "k.bin", "aad_suffix": "|v1", "cases": {"c.bin": {"salt": "bc9d7ef819ca13c9debbd326f4ff2a30", "iterations": 1000000, "check": "ck.bin", "files": ["c.bin", "ck.bin", "m.bin", "v.bin"], "aad_suffix": "|case1"}}}

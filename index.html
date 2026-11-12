@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atlas Clínico 3D · Visor anatómico con AR</title>
+<meta name="description" content="Del DICOM al modelo 3D: visor anatómico con realidad aumentada para apoyo a la decisión médica. Demo con datos de ejemplo.">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="theme-color" content="#0a1017">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a1017'/%3E%3Cpath d='M16 7l7 4v8l-7 4-7-4v-8z' fill='none' stroke='%233fdcff' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+</head>
+<body class="mode-real gated">
+<div id="app">
+  <div id="stage"></div>
+
+  <header id="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fdcff"/><stop offset="1" stop-color="#35d0a0"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="none" stroke="url(#bg)" stroke-width="2"/><path d="M16 7l7 4v8l-7 4-7-4v-8z" fill="none" stroke="url(#bg)" stroke-width="2" stroke-linejoin="round"/><path d="M16 15l7-4M16 15v8M16 15L9 11" stroke="url(#bg)" stroke-width="1.5" fill="none"/></svg>
+      <div><b>Atlas Clínico 3D</b><span>Del DICOM al modelo 3D · apoyo a la decisión médica</span></div>
+    </div>
+    <div class="case-chip" id="caseChip"><i class="dot"></i><span id="caseChipText">Caso de ejemplo</span></div>
+    <nav class="top-actions">
+      <button class="btn ghost" id="btnLock" title="Cambiar entre el caso de ejemplo y el caso real">🔒 Caso real</button>
+      <button class="btn ghost" id="btnPitch">Presentación</button>
+      <button class="btn ghost" id="btnAbout">Acerca de</button>
+    </nav>
+  </header>
+
+  <aside id="left" class="panel">
+    <div class="tabs" id="leftTabs">
+      <button data-tab="layers" class="on">Capas</button>
+      <button data-tab="findings">Hallazgos <em id="fCount">6</em></button>
+      <button data-tab="case">Caso</button>
+    </div>
+    <section id="tab-layers" class="tabbody on"></section>
+    <section id="tab-findings" class="tabbody"></section>
+    <section id="tab-case" class="tabbody"></section>
+  </aside>
+
+  <aside id="right" class="panel">
+    <div class="ph"><b>Corte del estudio</b><span class="tag">sintético</span></div>
+    <div class="tabs small" id="sliceTabs"><button data-p="axial" class="on">Axial</button><button data-p="coronal">Coronal</button><button data-p="sagital">Sagital</button></div>
+    <div class="slice-wrap"><canvas id="sliceCanvas"></canvas></div>
+    <div class="slice-ctl">
+      <input type="range" id="sliceRange" min="-265" max="255" step="1" value="15" aria-label="Posición del corte">
+      <div class="row"><span id="sliceVal">—</span><label class="chk"><input type="checkbox" id="slicePlane"> Plano en 3D</label></div>
+    </div>
+    <p class="fine">Corte calculado del modelo de ejemplo. Con un caso real, aquí se muestra la serie original del estudio junto al 3D.</p>
+  </aside>
+
+  <div id="hero" class="hero">
+    <div class="hero-k">CASO CLÍNICO DE EJEMPLO</div>
+    <div class="hero-t">Microlitiasis renal bilateral + calcificación extrarrenal</div>
+    <div class="hero-s">Tres toques para llegar al hallazgo: cuerpo completo → apagar sistemas → anomalía.</div>
+    <div class="hero-b"><button class="btn primary" id="heroStart">Iniciar recorrido guiado</button><button class="btn ghost" id="heroClose">Explorar libremente</button></div>
+  </div>
+
+  <div id="coach" class="coach" hidden>
+    <div class="coach-n" id="coachN"></div>
+    <div class="coach-t" id="coachT"></div>
+    <div class="coach-p" id="coachP"></div>
+    <div class="coach-b"><button class="btn ghost sm" id="coachExit">Salir</button><button class="btn primary sm" id="coachNext">Siguiente</button></div>
+  </div>
+
+  <div id="tip" class="tip" hidden></div>
+
+  <div id="toolbar" class="toolbar">
+    <div class="seg" id="modeSeg" role="group" aria-label="Modo de render"><button data-m="real" class="on">Realista</button><button data-m="holo">Holográfico</button></div>
+    <label class="slider"><span>Explosión</span><input type="range" id="explode" min="0" max="100" value="0"></label>
+    <button class="btn icon" id="btnReset" title="Restablecer vista">⟲<small>Vista</small></button>
+    <button class="btn icon" id="btnShowAll" title="Mostrar todo" hidden>◎<small>Mostrar todo</small></button>
+    <button class="btn icon" id="btnDemo" title="Recorrido guiado">▶<small>Recorrido</small></button>
+    <button class="btn primary" id="btnAR" title="Realidad aumentada sin marcadores">◐ Ver en AR</button>
+  </div>
+
+  <div id="disclaimer" class="disclaimer">Demo con datos de ejemplo. Herramienta de visualización, no es dispositivo médico ni diagnóstico.</div>
+
+  <nav id="mnav" class="mnav">
+    <button data-sheet="layers">Capas</button><button data-sheet="findings">Hallazgos</button><button data-sheet="slice">Corte</button><button data-sheet="case">Caso</button>
+  </nav>
+
+  <div id="pitch" class="overlay" hidden>
+    <div class="overlay-card wide">
+      <button class="x" data-close>×</button>
+      <div class="hero-k">ATLAS CLÍNICO 3D</div>
+      <h1>Del DICOM al modelo 3D en minutos</h1>
+      <p class="lead">Menos tiempo de interpretación, mejor planeación y una forma clara de explicarle al paciente su caso. Apoyo a la decisión médica: la herramienta visualiza, el médico decide.</p>
+      <div class="vals">
+        <div><b>Tiempo</b><span>Del estudio a un modelo navegable sin reconstruir cortes 2D mentalmente.</span></div>
+        <div><b>Precisión</b><span>Cada hallazgo con ubicación, medida en mm y densidad en UH, con su fuente (reporte o interpretación IA).</span></div>
+        <div><b>Comunicación</b><span>El paciente ve su anatomía y entiende dónde está el hallazgo, en el consultorio o en su casa.</span></div>
+      </div>
+      <h2>Para cerrar la conversación</h2>
+      <div class="three">
+        <div class="slot"><i>1</i><b>Mercado objetivo</b><span class="todo">por completar</span><small>Segmento, tamaño y primeros clientes. Sin cifras inventadas.</small></div>
+        <div class="slot"><i>2</i><b>Ruta regulatoria</b><span class="todo">por completar</span><small>COFEPRIS (México) · FDA (EE. UU.). Clasificación y estrategia por definir.</small></div>
+        <div class="slot"><i>3</i><b>Uso de la inversión</b><span class="todo">por completar</span><small>Desarrollo, validación clínica, cumplimiento y piloto.</small></div>
+      </div>
+      <p class="fine">Esta pantalla es un marcador de posición. Demo con datos de ejemplo; no es un dispositivo médico aprobado ni ofrece diagnóstico automático.</p>
+      <div class="ov-actions"><button class="btn primary" data-close>Volver al visor</button></div>
+    </div>
+  </div>
+
+  <div id="about" class="overlay" hidden>
+    <div class="overlay-card">
+      <button class="x" data-close>×</button>
+      <h1>Acerca de esta demo</h1>
+      <div id="aboutBody"></div>
+      <div class="ov-actions"><button class="btn primary" data-close>Cerrar</button></div>
+    </div>
+  </div>
+
+  <div id="gate" class="gate">
+    <form class="gate-card" onsubmit="return false">
+      <svg viewBox="0 0 32 32" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="none" stroke="#3fdcff" stroke-width="2"/><rect x="10" y="14" width="12" height="9" rx="2" fill="none" stroke="#3fdcff" stroke-width="2"/><path d="M12 14v-3a4 4 0 018 0v3" fill="none" stroke="#3fdcff" stroke-width="2"/></svg>
+      <h1 id="gateTitle">Acceso privado</h1>
+      <p id="gateText">Este sitio es privado. Todo el contenido está cifrado (AES-256-GCM) y se descifra únicamente en tu navegador; la contraseña no se envía a ningún servidor.</p>
+      <input id="gatePw" type="password" autocomplete="current-password" placeholder="Contraseña" aria-label="Contraseña">
+      <button class="btn primary" id="gateGo" type="button">Entrar</button>
+      <div id="gateMsg" class="gate-msg" role="status"></div>
+      <a class="fine" id="gateBack" href="./" hidden>← Volver al caso de ejemplo</a>
+    </form>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+
+  <div id="ar-hud" hidden>
+    <div class="ar-ui ar-top">
+      <button class="btn ghost" id="arExit">✕ Salir</button>
+      <span data-ar-status>Mueve el teléfono para detectar una superficie…</span>
+      <button class="btn ghost" id="arRe">Reubicar</button>
+    </div>
+    <div class="ar-ui ar-bottom">
+      <div class="seg" id="arModeSeg"><button data-m="real" class="on">Realista</button><button data-m="holo">Holo</button></div>
+      <button class="btn icon" id="arLabels">Etiquetas</button>
+      <label class="slider"><span>Explosión</span><input type="range" id="arExplode" min="0" max="100" value="0"></label>
+    </div>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
