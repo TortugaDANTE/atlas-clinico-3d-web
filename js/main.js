@@ -6,7 +6,7 @@ import { unlock } from './unlock.js';
 import { startSession, stopSession } from './session.js';
 import { Editor } from './edit.js';
 import { ARController } from './ar.js';
-import { renderClinical, createLabChips, createSpineLabels, revokeImages } from './clinical.js';
+import { renderClinical, createLabChips, createSpineLabels, revokeImages, bindDocumentReview } from './clinical.js';
 import { SRC, sizeText, huText } from './cards.js';
 import { TEXTS, findingReviewHtml, countsHtml, bindReviewClicks, markModified, applyReviewVisuals, normalizeCaseReviews, defaultReviewStatus } from './review.js';
 import { evaluateRules, renderAlerts, renderRuleActions } from './ia-rules.js';
@@ -394,7 +394,7 @@ async function showCase(entry) {
   REAL = entry === 'c.bin'; buildTour();
   const opened = await vault.openCase(entry); caseData = normalizeCaseReviews(opened.caseData); caseData.__iaRules = evaluateRules(caseData); const fb = opened.fetchBuf;
   configureSlices(caseData.model?.slice || null);
-  await viewer.loadCase(caseData, '', fb); updateInsets(); viewer.initView();
+  if (editor) editor.caseData = caseData; await viewer.loadCase(caseData, '', fb); updateInsets(); viewer.initView();
   const rt = document.querySelector('#right .tag'), rf = document.querySelector('#right .fine');
   if (caseData.volume) {
     const buf = await fb(caseData.volume.file); slice = new VolumeSliceView($('#sliceCanvas'), viewer, new Uint8Array(buf), caseData.volume);
@@ -413,7 +413,7 @@ async function showCase(entry) {
   $('.dot').style.background = REAL ? '#ff6b6b' : ''; document.title = REAL ? 'Atlas Clínico 3D' : 'Atlas Clínico 3D · Visor anatómico con AR';
   $('#btnLock').textContent = REAL ? '◐ Ejemplo' : '🔒 Caso real';
   renderLayers(); renderFindings(); renderCase(); renderAbout();
-  if (caseData.clinical?.documents?.length) { renderClinical($('#tab-clinic'), caseData, fb); labChips = createLabChips(viewer, caseData); spineGrp = createSpineLabels(viewer, caseData); $$('#tabClinic,#mnClinic,#btnClinic').forEach(b => b.hidden = false); }
+  if (caseData.clinical?.documents?.length) { renderClinical($('#tab-clinic'), caseData, fb); bindDocumentReview($('#tab-clinic'), { editor, modal, toast, esc, reviewer: 'médico tratante', onChange: () => renderClinical($('#tab-clinic'), caseData, fb) }); labChips = createLabChips(viewer, caseData); spineGrp = createSpineLabels(viewer, caseData); $$('#tabClinic,#mnClinic,#btnClinic').forEach(b => b.hidden = false); }
   syncSlice(viewer.findings[0].id, false);
   try { await editor.attach(entry, vault.localKey(entry)); } catch (e) { console.error(e); toast('No se pudo abrir el historial local: ' + e.message); }
   bindReviewClicks($('#tab-findings'), {

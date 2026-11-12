@@ -180,6 +180,8 @@ em.cnt{font-style:normal;color:var(--am)}
 details.full{margin-top:6px;border-top:1px solid rgba(255,255,255,.08);padding-top:6px}
 details.full>summary{cursor:pointer;font-size:12px;color:var(--acc);font-weight:600}
 .acts{margin-top:8px;display:flex;gap:6px}
+.ia-rev{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.ia-rev .btn{margin:6px 6px 0 0}
 .md{font-size:12.5px;line-height:1.5;color:#dbe4ec}
 .md h2,.md h3,.md h4,.md h5{margin:12px 0 4px;font-size:13px;color:#fff}.md h2:first-child{font-size:14px}
 .md p{margin:6px 0}.md ul,.md ol{margin:5px 0;padding-left:20px}.md li{margin:3px 0}

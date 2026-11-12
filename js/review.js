@@ -98,6 +98,16 @@ export function normalizeCaseReviews(caseData) {
         return review ? { ...item, review } : { ...item };
       });
     }
+    if (Array.isArray(clinical.documents)) {
+      // Solo las fichas de informe IA (id informe-*) o las que ya traen review.
+      // No se asigna revisión a todas las de source interpretacion_ia.
+      clinical.documents = clinical.documents.map(d => {
+        const isInforme = !!(d.id && String(d.id).startsWith('informe-'));
+        if (!d.review && !isInforme) return { ...d };
+        const review = normalizeReview(d.review, { source: d.source || (isInforme ? 'interpretacion_ia' : undefined) });
+        return review ? { ...d, review } : { ...d };
+      });
+    }
   }
   const out = { ...caseData, findings, review_points, organ_notes };
   if (clinical) out.clinical = clinical;
@@ -224,6 +234,30 @@ export async function commitReview(editor, fid, decision, { actionId } = {}) {
   if (typeof editor.reload === 'function') await editor.reload();
   else editor.onChange?.();
   return afterF;
+}
+
+
+/** Revisión de una ficha clínica (p. ej. Informe IA), con el mismo historial cifrado (fid = doc:<id>). */
+export async function commitDocumentReview(editor, docId, decision) {
+  const docs = editor.caseData?.clinical?.documents || editor.viewer?.case?.clinical?.documents || [];
+  const doc = docs.find(d => d.id === docId);
+  if (!doc) throw new Error('No está la ficha ' + docId);
+  const before = { ...doc, review: doc.review || null, audit: doc.audit || [] };
+  const after = applyReview(before, decision);
+  doc.review = after.review;
+  doc.audit = after.audit;
+  if (editor.store?.add) {
+    await editor.store.add({
+      fid: 'doc:' + docId,
+      kind: KIND_REVISION,
+      before: { review: before.review || null },
+      after: { review: after.review, audit: after.audit },
+      label: after.review.status,
+    });
+  }
+  if (typeof editor.reload === 'function') await editor.reload();
+  else editor.onChange?.();
+  return after;
 }
 
 export function reviewBadgeHtml(status) {

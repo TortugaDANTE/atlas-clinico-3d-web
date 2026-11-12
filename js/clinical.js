@@ -54,6 +54,18 @@ function fichaHtml(d, { full = false } = {}) {
   if (d.chart) h += chartHtml(d.chart);
   if (d.images?.length) h += `<div class="imgs">${d.images.map(im => `<figure><img data-img="${esc(im.file)}" alt="${esc(im.caption)}" ${full ? '' : 'loading="lazy"'}><figcaption>${esc(im.caption)}</figcaption></figure>`).join('')}</div>`;
   if (!full && d.actions?.length) h += `<div class="acts">${d.actions.map(a => `<button class="btn sm" ${a.fly ? `data-fly="${esc(a.fly)}"` : ''} ${a.overlay ? `data-overlay="${esc(a.overlay)}"` : ''}>${esc(a.label)}</button>`).join('')}</div>`;
+  if (d.review || (d.id && String(d.id).startsWith('informe-'))) {
+    const st = d.review?.status || 'propuesta';
+    const badge = { propuesta: 'PRELIMINAR', pendiente: 'PENDIENTE', confirmada: 'CONFIRMADA', descartada: 'DESCARTADA', modificada: 'MODIFICADA' };
+    h += `<div class="ia-rev"><span class="badge ia">${esc(badge[st] || st)}</span>`;
+    h += `<p class="fine">Propuesta de IA. No es un diagnóstico. El médico debe confirmar, modificar o descartar este informe.</p>`;
+    if (d.review?.nota) h += `<p class="fine">Nota de revisión: ${esc(d.review.nota)}</p>`;
+    if (st !== 'confirmada') h += `<button class="btn sm ok" data-docrev="confirmada" data-docid="${esc(d.id)}">Confirmar</button>`;
+    if (st !== 'descartada') h += `<button class="btn sm danger" data-docrev="descartada" data-docid="${esc(d.id)}">Descartar</button>`;
+    if (st !== 'modificada') h += `<button class="btn sm" data-docrev="modificada" data-docid="${esc(d.id)}">Modificar</button>`;
+    if (st !== 'pendiente') h += `<button class="btn sm ghost" data-docrev="pendiente" data-docid="${esc(d.id)}">Pendiente</button>`;
+    h += `</div>`;
+  }
   if (d.markdown) h += full ? `<div class="md">${mdToHtml(d.markdown)}</div>`
     : `<details class="full"><summary>Ver documento completo</summary><div class="md">${mdToHtml(d.markdown)}</div></details><div class="acts"><button class="btn sm" data-dl="${esc(d.id)}">⬇ Descargar .md</button><button class="btn sm" data-pdf1="${esc(d.id)}">📄 PDF de esta ficha</button></div>`;
   return h + '</article>';
@@ -153,4 +165,38 @@ export function createSpineLabels(viewer, caseData) {
     grp.add(ln, sp);
   }
   viewer.model.add(grp); grp.userData.center = lv.length ? new THREE.Vector3(0, (lv[0].position_mm[1] + lv[lv.length - 1].position_mm[1]) / 2, -55) : null; return grp;
+}
+
+
+/** Botones de revisión en fichas de informe IA. */
+export function bindDocumentReview(root, { editor, modal, toast, esc, onChange, reviewer = 'médico tratante' } = {}) {
+  if (!root || root._docRevBound) return;
+  root._docRevBound = true;
+  root.addEventListener('click', async e => {
+    const b = e.target.closest('[data-docrev]');
+    if (!b) return;
+    e.preventDefault();
+    const status = b.dataset.docrev, docId = b.dataset.docid;
+    let nota = null;
+    try {
+      const { commitDocumentReview, TEXTS } = await import('./review.js');
+      if (status === 'descartada' || status === 'modificada') {
+        const title = status === 'descartada' ? 'Descartar informe IA' : 'Modificar informe IA';
+        const hint = status === 'descartada' ? TEXTS.alDescartar : TEXTS.alModificar;
+        nota = await new Promise(resolve => {
+          const body = modal.open(`<h1>${esc(title)}</h1><p class="fine">${esc(hint)}</p><textarea id="docRevNota" rows="4"></textarea><div class="ov-actions"><button class="btn ghost" data-act="cancel">Cancelar</button><button class="btn primary" data-act="ok">Guardar</button></div>`);
+          body.onclick = ev => {
+            const a = ev.target.closest('[data-act]')?.dataset.act; if (!a) return;
+            if (a === 'cancel') { modal.close(); resolve(null); }
+            else { const v = body.querySelector('#docRevNota')?.value || ''; modal.close(); resolve(v); }
+          };
+        });
+        if (nota == null) return;
+        if (status === 'descartada' && !String(nota).trim()) { toast?.(TEXTS.alDescartar, 5000); return; }
+      }
+      await commitDocumentReview(editor, docId, { status, reviewer, nota });
+      onChange?.();
+      if (status === 'confirmada') toast?.(TEXTS.alConfirmar, 5000);
+    } catch (err) { toast?.(err.message || String(err), 8000); }
+  });
 }

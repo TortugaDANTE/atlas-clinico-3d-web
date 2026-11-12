@@ -17,6 +17,9 @@ export class Editor {
   async attach(entry, key) {
     this.detach(); this.entry = entry; this.store = await openStore(entry, key);
     this.orig.set(CASE_ID, { user_note: '' });
+    for (const d of this.caseData?.clinical?.documents || []) {
+      if (d.review) this.orig.set('doc:' + d.id, { review: JSON.parse(JSON.stringify(d.review)), audit: d.audit ? JSON.parse(JSON.stringify(d.audit)) : [] });
+    }
     for (const f of this.viewer.findings) {
       const o = Object.fromEntries(FIELDS.map(([k]) => [k, f[k] ?? '']));
       if (f.review || f.data?.review) o.review = JSON.parse(JSON.stringify(f.review || f.data.review));
@@ -31,7 +34,15 @@ export class Editor {
     for (const r of this.records) { const prev = this.cur.get(r.fid) || {}; this.cur.set(r.fid, { ...prev, ...(r.after || {}) }); }
     for (const [fid, s] of this.cur) this.apply(fid, s); this.onChange();
   }
-  apply(fid, s) { if (fid !== CASE_ID) this.viewer.updateFinding(fid, { ...s }); }
+  apply(fid, s) {
+    if (fid === CASE_ID) return;
+    if (String(fid).startsWith('doc:')) {
+      const doc = this.caseData?.clinical?.documents?.find(d => d.id === fid.slice(4));
+      if (doc) { if (s.review) doc.review = s.review; if (s.audit) doc.audit = s.audit; }
+      return;
+    }
+    if (this.viewer?.updateFinding) this.viewer.updateFinding(fid, { ...s });
+  }
   snap(fid) { return this.cur.get(fid) || {}; }
   isEdited(fid) { const o = this.orig.get(fid), c = this.cur.get(fid); return !!o && !!c && !same(o, c); }
   userNote(fid) { return this.cur.get(fid)?.user_note || ''; }
